@@ -1,0 +1,407 @@
+# CLAUDE.md: Mezbaan Platform
+
+Mezbaan is a multi-tenant restaurant SaaS with a strong POS and a complete inventory system.
+It runs as an offline-capable desktop app in each branch and as a cloud platform on the server.
+
+- **Target:** 100-1,000 restaurants, each with multiple branches and terminals.
+- **Roles:** Super Admin, Restaurant Owner, Branch Manager, Cashier, Kitchen Staff.
+- **Top priority:** billing must keep working. A failure in one module must never stop a sale or lose data.
+
+---
+
+## 1. How to work in this repo
+
+1. Read this file, then check the task list for the first unchecked task in the current phase.
+2. Work on one task at a time, in order, unless a task says it can run in parallel.
+3. Before a large task, state your approach in a few lines. Ask only if a wrong guess is expensive to undo.
+4. Add or update tests with the code. Run lint, typecheck and the affected tests before calling a task done.
+5. Tick the task's checkbox in this file only when it meets the Definition of Done.
+6. Make small commits that reference the task ID, for example `feat(pos): split bill by item [P2-21]`.
+7. **Stop at each phase's exit gate.** Report the results and wait for approval before starting the next phase.
+8. Do not add technology outside the approved stack without asking. Do not add Phase 4 infrastructure early.
+9. If a task conflicts with a rule in section 2, the rule wins. Raise the conflict instead of working around it.
+10. If `docs/modules.md` or `docs/database.md` exist from the old project, use them as functional reference only.
+
+### Definition of Done
+
+A task is done only when all of these are true:
+
+- The feature works end to end, including its loading, empty, error and offline states.
+- Tests cover the normal path, failures, permissions and tenant isolation.
+- Lint, typecheck and tests pass in CI.
+- Database changes are in a forward migration, with row-level security on any tenant table.
+- Sensitive actions write to the audit log.
+- A failure in this feature is contained and cannot crash another module.
+
+---
+
+## 2. Rules that must never be broken
+
+### Data and money
+
+1. **Tenant comes from the token only.** Never trust `restaurant_id` from a request body, query or header. Reject any conflict.
+2. **Every tenant table has PostgreSQL row-level security.** It is a second barrier, and application code must still filter correctly.
+3. **Prices come from server-owned data, never from client input.** Online, the server prices the order. Offline, the terminal uses only the signed, versioned price list synced from the server. The server recalculates each synced sale and flags any mismatch for review. It never silently changes a recorded sale.
+4. **Financial records are append-only.** Never update or delete invoices, payments, refunds, commission entries or stock ledger rows. Correct them with compensating rows, and revoke `UPDATE` and `DELETE` on these tables at database level.
+5. **Money is an integer in minor units** (`bigint`), never a float. All calculations go through `packages/domain` so the terminal and server produce identical results.
+6. **Never build a feature that hides, removes or under-reports sales.** Voids, refunds and discounts are always recorded, attributed to a user, given a reason and visible in reports.
+7. **Commission rate is locked at registration and snapshotted on each entry.** Later rate changes never alter past entries.
+
+### Offline and sync
+
+8. Every terminal write goes to SQLite and the operation log in one local transaction.
+9. Every operation has a client-generated UUIDv7 ID and an `idempotencyKey`. Retrying can never create a duplicate.
+10. Document numbers use a per-terminal series, such as `B1-T2-000123`, so offline terminals cannot collide.
+11. Financial events merge by appending. For menu and settings data, the server's version wins.
+12. Offline stock may go negative. Record and flag it, and never block a sale because of it.
+
+### Reliability
+
+13. No module may crash another. Keep the failure boundaries described in section 5.
+14. A broker, report, printer or external service failure must never block a sale.
+15. Every network and hardware call has a timeout. Background jobs retry with backoff, then move to a dead-letter queue.
+16. Never swallow errors silently. Log them with context, and show the user a clear next step.
+
+### Security
+
+17. Never commit secrets. Validate all input at the boundary with shared schemas.
+18. Kitchen APIs and screens never receive money fields.
+19. The local database is encrypted. Device tokens can be revoked. Desktop updates are signed.
+20. Use parameterized SQL only. Never log passwords, tokens or full payment details.
+
+---
+
+## 3. Technology stack
+
+| Layer | Technology |
+|---|---|
+| Monorepo | pnpm workspaces, Turborepo, TypeScript strict mode |
+| Desktop | Tauri 2, with Rust kept to a thin layer for hardware, storage and the branch hub |
+| UI | React, Vite, TypeScript, Tailwind, TanStack Query, Zustand |
+| Local database | SQLite in WAL mode, encrypted |
+| Backend | NestJS on Fastify |
+| Main database | PostgreSQL with row-level security and partitioning |
+| Connection pool | PgBouncer in transaction mode |
+| Data access | Drizzle ORM and raw parameterized SQL where needed |
+| Cache and jobs | Valkey or Redis, with BullMQ |
+| Real-time | WebSockets |
+| Validation | Zod schemas in `packages/contracts` |
+| Files | S3-compatible storage |
+| Events (Phase 4) | Redpanda through the Kafka API, fed by an outbox table |
+| Analytics (Phase 4) | ClickHouse |
+| Scale-out (only if needed) | Citus, sharded by `restaurant_id` |
+| Operations | Docker, GitHub Actions, Prometheus, Grafana, Sentry |
+| Testing | Vitest, Playwright, property-based tests, load tests with k6 |
+
+---
+
+## 4. Repository structure
+
+```text
+mezbaan/
+├── apps/
+│   ├── desktop/        # Tauri app: POS, kitchen, restaurant admin
+│   ├── web/            # QR menu, public site, Super Admin
+│   ├── api-pos/        # POS and sync API
+│   ├── api-admin/      # Restaurant admin, inventory, platform admin
+│   ├── api-public/     # QR ordering and public site
+│   ├── api-reports/    # Reports
+│   └── worker/         # Outbox, commission, settlements, notifications
+├── packages/
+│   ├── domain/         # Money, tax, pricing and state machines; no I/O
+│   ├── contracts/      # API and sync schemas
+│   ├── db/             # PostgreSQL schema, migrations, RLS policies
+│   ├── local-db/       # SQLite schema and migrations
+│   ├── sync/           # Operation log and sync client
+│   ├── nest-core/      # Tenant context, auth, audit, errors, logging
+│   └── ui/             # Shared React components and design tokens
+├── infra/              # Docker, deployment, monitoring
+└── docs/               # Decisions and runbooks
+```
+
+Each business module (`orders`, `billing`, `inventory` and so on) keeps its own controllers, services and tests. Modules talk through public service interfaces or events, never through another module's tables.
+
+---
+
+## 5. Architecture
+
+```text
+Branch:  POS terminals (Tauri + SQLite) <-> Branch hub <-> Kitchen and printers
+                                               |
+                                       Operation log sync
+                                               v
+Cloud:   API processes -> PostgreSQL (sale + outbox in one transaction)
+                               |
+                          Outbox relay -> Redpanda -> Consumers -> ClickHouse
+                                          (Phase 4)
+```
+
+### Failure boundaries
+
+| What fails | Required behavior |
+|---|---|
+| `api-pos` | Branches keep selling offline and sync after recovery |
+| `api-admin` | POS and sync continue |
+| `api-public` | POS, kitchen and admin continue |
+| `api-reports` | Selling and stock continue; reports are delayed |
+| `worker` | Jobs wait in the queue and resume with no loss |
+| A desktop screen | An error boundary closes only that module; POS, kitchen and admin use separate windows |
+| The desktop app or PC | A watchdog restarts the app, and the open order is restored from SQLite |
+| Printer or cash drawer | The job is queued and retried; the sale completes and can be reprinted |
+| Internet | The branch keeps working on the local network and syncs later |
+| Branch hub | Terminals keep billing and printing locally and catch up when the hub returns |
+| A bad update | The app rolls back, and a feature flag can turn off the problem module |
+
+Server rules: each process runs at least two instances, has its own database connection pool, exposes health checks, and uses rolling deployments. Requests are rate-limited per restaurant.
+
+### Database rules
+
+- Every tenant table includes `restaurant_id`, and it is part of the primary key.
+- Branch-level tables also include `branch_id`.
+- Set the tenant with `SET LOCAL app.restaurant_id` inside each transaction, which works with PgBouncer transaction mode.
+- Partition orders, ledger rows and audit logs by month.
+- The outbox row is written in the same transaction as the business change.
+
+---
+
+## 6. Open decisions
+
+Ask the owner when a task reaches one of these. Until then, keep the value configurable and do not guess.
+
+- Peak orders per day per restaurant (sets load test targets).
+- Team size (sets delivery estimates).
+- Whether existing Mezbaan data needs migrating. The old docs list Laravel/MySQL and later notes list Node/Prisma/PostgreSQL.
+- Launch market and its tax invoicing rules.
+- Printers, cash drawers and POS PCs that must be supported.
+- Mobile needs, such as an owner app or waiter tablets.
+
+---
+
+## 7. Task list
+
+### Phase 1: Foundation
+
+**Goal:** a secure, tested base on which all modules can run offline.
+
+**Repo and infrastructure**
+- [ ] **P1-01** Set up the monorepo in section 4 with strict TypeScript, ESLint, Prettier and Turborepo.
+- [ ] **P1-02** Add Docker Compose for local PostgreSQL, PgBouncer, Valkey and S3-compatible storage.
+- [ ] **P1-03** Add CI for lint, typecheck, tests and builds, with migrations checked on every pull request.
+- [ ] **P1-04** Add Sentry, structured logging, Prometheus metrics and health endpoints.
+- [ ] **P1-05** Create `api-pos`, `api-admin`, `api-public`, `api-reports` and `worker` as separately deployable processes.
+
+**Shared domain**
+- [ ] **P1-06** Build `packages/domain` money utilities using integer minor units, with property-based tests.
+- [ ] **P1-07** Add tax, discount, service charge and rounding calculations with fixed test cases shared by terminal and server.
+- [ ] **P1-08** Build `packages/contracts` with shared Zod schemas and generated TypeScript types.
+
+**Tenancy, identity and audit**
+- [ ] **P1-09** Create restaurant, branch, user, role, permission and device tables with row-level security.
+- [ ] **P1-10** Build tenant context middleware that takes the tenant only from the token and sets it per transaction.
+- [ ] **P1-11** Build login, refresh tokens, logout, password reset and server-side session revocation.
+- [ ] **P1-12** Build permission checks for the five roles, including branch-level access.
+- [ ] **P1-13** Add a manager PIN for approving sensitive actions, online and offline.
+- [ ] **P1-14** Build the append-only audit log and record who, what, when, where and which device.
+- [ ] **P1-15** Build restaurant onboarding: signup, first branch, default roles and locked commission settings.
+- [ ] **P1-16** Port `TenantIsolationTest`, extend it to every endpoint and RLS policy, and make it a required CI check.
+- [ ] **P1-17** Build Branch CRUD and user invitation screens as the reference pattern for later modules.
+
+**Desktop foundation**
+- [ ] **P1-18** Create the Tauri 2 app with separate POS, kitchen and admin windows, and error boundaries per module.
+- [ ] **P1-19** Add encrypted SQLite in WAL mode with migrations and an integrity check at startup.
+- [ ] **P1-20** Add device pairing, token storage and remote device revocation.
+- [ ] **P1-21** Add signed auto-updates with staged rollout and automatic rollback.
+- [ ] **P1-22** Add a watchdog that restarts the app and restores in-progress work.
+- [ ] **P1-23** Add remote per-module feature flags per restaurant.
+
+**Sync and outbox**
+- [ ] **P1-24** Build the local operation log, with each write and its operation saved in one transaction.
+- [ ] **P1-25** Build the sync client: batching, ordering, retry with backoff, and resume after a crash.
+- [ ] **P1-26** Build the server sync endpoint with idempotency, validation and a per-operation result.
+- [ ] **P1-27** Build downstream sync for menu, prices, staff and settings with versioned, signed snapshots.
+- [ ] **P1-28** Build per-terminal document number series.
+- [ ] **P1-29** Add a sync status indicator showing online state, pending count and last successful sync.
+- [ ] **P1-30** Build the PostgreSQL outbox table and a worker that processes it with no broker.
+- [ ] **P1-31** Add fault tests for lost connections, duplicates, crashes mid-sync and terminals offline for several days.
+
+**Exit gate:** sync passes all fault tests; tenant isolation tests cover every endpoint; killing any process leaves the others running.
+
+---
+
+### Phase 2: Complete offline POS
+
+**Goal:** a cashier can run a full service, with or without internet, and no sale is ever lost.
+
+**Catalog**
+- [ ] **P2-01** Build categories and products with images, SKU, barcode and availability by branch.
+- [ ] **P2-02** Build variants such as size, and modifier groups with required and optional rules and min/max choices.
+- [ ] **P2-03** Build combos and deals with fixed and choice-based items.
+- [ ] **P2-04** Build versioned price lists with branch, order type and time-based pricing.
+- [ ] **P2-05** Build tax rules, tax-inclusive and tax-exclusive pricing, and service charge settings.
+- [ ] **P2-06** Build out-of-stock (86) marking that syncs quickly to all terminals and kitchen screens.
+
+**Tables and order types**
+- [ ] **P2-07** Build floors, table layout, status colors, seat counts and QR code records.
+- [ ] **P2-08** Add table transfer, merge and split.
+- [ ] **P2-09** Support dine-in, takeaway and delivery orders, each with its own workflow.
+- [ ] **P2-10** Add customer and address capture for delivery, plus rider assignment and delivery status.
+
+**POS terminal**
+- [ ] **P2-11** Build a fast touch-first POS screen with category grid, search, barcode scanning and keyboard shortcuts.
+- [ ] **P2-12** Build the cart with quantities, modifiers, notes and seat or course assignment.
+- [ ] **P2-13** Build order state machine and status history in `packages/domain`, rejecting illegal transitions.
+- [ ] **P2-14** Add hold and recall of orders, and running tabs for dine-in tables.
+- [ ] **P2-15** Add fire-to-kitchen by item or course, and tracking of what was already sent.
+- [ ] **P2-16** Prevent two terminals from silently overwriting the same open order on the local network.
+- [ ] **P2-17** Show clear offline, syncing and price-list-version status on the POS screen.
+
+**Billing and payments**
+- [ ] **P2-18** Generate invoices with per-terminal numbers, using only domain calculations and a price version.
+- [ ] **P2-19** Add cash, card, bank transfer and wallet payment methods, configurable by restaurant, including tips.
+- [ ] **P2-20** Add split payments across multiple methods, with exact change calculation.
+- [ ] **P2-21** Add split bills by item, by seat, by amount and into equal parts.
+- [ ] **P2-22** Add bill-level and item-level discounts with limits, reason codes and manager approval.
+- [ ] **P2-23** Add voids before and after kitchen firing, with reason, approval and an audit record.
+- [ ] **P2-24** Add full and partial refunds through compensating rows, with approval and audit.
+- [ ] **P2-25** Add credit customers with an append-only account ledger, credit limits and repayments.
+- [ ] **P2-26** Reconcile synced sales on the server: recalculate totals and send mismatches to a review queue.
+
+**Cash and shifts**
+- [ ] **P2-27** Build shift open and close, with opening float and counted cash by denomination.
+- [ ] **P2-28** Add cash in and cash out with reason codes, plus cash drawer open logging.
+- [ ] **P2-29** Add over/short calculation, X report (mid-shift) and Z report (end of shift).
+- [ ] **P2-30** Add business-day close per branch, which blocks new sales on a closed day without losing offline sales.
+
+**Printing and hardware**
+- [ ] **P2-31** Build ESC/POS support for USB and network printers in the Rust layer, with timeouts.
+- [ ] **P2-32** Build a persistent print queue with retry, failure alerts and reprint marked as a copy.
+- [ ] **P2-33** Build configurable receipt templates with logo, tax details and footer.
+- [ ] **P2-34** Add cash drawer control, and barcode scanner support as keyboard input.
+- [ ] **P2-35** Add a printer test and setup screen that branch staff can use without developer help.
+
+**Branch hub**
+- [ ] **P2-36** Add hub mode to the desktop app: local WebSocket and HTTP server with paired devices only.
+- [ ] **P2-37** Add automatic hub discovery on the local network, with manual IP as a fallback.
+- [ ] **P2-38** Share orders, table status and kitchen tickets between devices through the hub while offline.
+- [ ] **P2-39** Make terminals keep billing if the hub fails, and catch up when it returns.
+
+**Basic reports for the pilot**
+- [ ] **P2-40** Add a daily sales summary, payment breakdown and void, discount and refund reports.
+
+**Exit gate:** a pilot branch runs full service, including an internet outage and a hub restart, with no lost or duplicated sales. Totals match between terminals and server.
+
+---
+
+### Phase 3: Kitchen, complete core inventory and platform billing
+
+**Goal:** kitchen flow, accurate stock and food cost, and platform revenue.
+
+**Kitchen**
+- [ ] **P3-01** Build kitchen stations and routing rules by product and category.
+- [ ] **P3-02** Build kitchen tickets with no money fields, including add-ons, voids and rush flags.
+- [ ] **P3-03** Build the kitchen display: queue, timers, bump, recall and order-ready status.
+- [ ] **P3-04** Add kitchen printer support, with fallback from display to printer and back.
+- [ ] **P3-05** Make the kitchen flow work offline through the hub.
+- [ ] **P3-06** Add preparation time reports by station and product.
+
+**Inventory items and ledger**
+- [ ] **P3-07** Build inventory items, categories, SKU, barcode and storage locations (such as store and kitchen).
+- [ ] **P3-08** Build units and conversions, such as purchase in cartons, store in kg and use in grams.
+- [ ] **P3-09** Build the append-only stock ledger with movement types: purchase, sale, return, wastage, adjustment, count, production and transfer.
+- [ ] **P3-10** Build branch and location stock levels derived from the ledger, with a rebuild tool to verify them.
+- [ ] **P3-11** Add weighted average costing, with the unit cost snapshotted on each movement.
+- [ ] **P3-12** Add negative stock flags and a review screen for offline sales.
+
+**Recipes and production**
+- [ ] **P3-13** Build recipes per product and variant, with quantities, units and yield percentage.
+- [ ] **P3-14** Add recipe rules for modifiers, such as extra cheese adding ingredients.
+- [ ] **P3-15** Add sub-recipes and semi-finished items, such as sauces and marinated meat.
+- [ ] **P3-16** Add production batches that consume ingredients and add finished stock.
+- [ ] **P3-17** Auto-deduct stock from synced sales through idempotent outbox processing.
+- [ ] **P3-18** Handle voids and refunds: a choice of return to stock or record as wastage, with a reason.
+- [ ] **P3-19** Snapshot the recipe version and cost on each sale for accurate food cost history.
+
+**Purchasing and suppliers**
+- [ ] **P3-20** Build supplier records, the items each supplies, and price history.
+- [ ] **P3-21** Build purchase orders with draft, approval, sent, partly received and closed states.
+- [ ] **P3-22** Build goods received notes with partial delivery, price differences and rejected items.
+- [ ] **P3-23** Build supplier invoices and three-way matching across order, receipt and invoice.
+- [ ] **P3-24** Build purchase returns through compensating stock movements.
+- [ ] **P3-25** Build an append-only supplier ledger with payments and outstanding balances.
+
+**Stock control**
+- [ ] **P3-26** Build full and cycle stock counts, with blind count entry and offline support.
+- [ ] **P3-27** Add variance review and approval before stock is adjusted.
+- [ ] **P3-28** Add wastage entry with reason codes and approval limits.
+- [ ] **P3-29** Add minimum and par levels with low-stock alerts on the dashboard.
+- [ ] **P3-30** Add an inventory audit trail showing the full history behind any stock number.
+
+**Inventory reports**
+- [ ] **P3-31** Add stock on hand, stock valuation and stock movement reports.
+- [ ] **P3-32** Add theoretical versus actual food cost and variance reports.
+- [ ] **P3-33** Add wastage, purchase and supplier reports.
+
+**Platform billing and admin**
+- [ ] **P3-34** Build commission entries from paid invoices, with the rate snapshotted and idempotent processing.
+- [ ] **P3-35** Add commission reversals when a refund occurs.
+- [ ] **P3-36** Add the hybrid fixed + commission plan and configurable billing cycles.
+- [ ] **P3-37** Build `CommissionRun` with idempotent runs and a nightly settlement job.
+- [ ] **P3-38** Build settlement statements and payment recording.
+- [ ] **P3-39** Build Super Admin: restaurant list, status, plans, devices, platform revenue and support tools.
+- [ ] **P3-40** Add full audit logging and a clear visible notice whenever Super Admin acts on a restaurant's data.
+
+**Exit gate:** stock movements reconcile with real sales in the pilot; a ledger rebuild matches stored stock levels; commission matches invoices and refunds; the kitchen works through an internet outage.
+
+---
+
+### Phase 4: Growth and scale
+
+**Goal:** customer-facing channels, full reporting, advanced inventory and proven capacity for 1,000 restaurants.
+
+**Customer-facing**
+- [ ] **P4-01** Build QR scan, public menu and order placement, with server-side pricing and rate limits.
+- [ ] **P4-02** Send QR orders to the POS and kitchen, with cashier approval configurable by restaurant.
+- [ ] **P4-03** Build restaurant website pages and settings.
+- [ ] **P4-04** Build customer records, order history and optional loyalty points.
+- [ ] **P4-05** Add customer data export and deletion that keep financial records intact through anonymization.
+
+**Management and reports**
+- [ ] **P4-06** Build branch expenses with categories, attachments and approval.
+- [ ] **P4-07** Build sales reports by hour, product, category, staff, order type and branch.
+- [ ] **P4-08** Build tax reports, profit estimates and owner dashboards across branches.
+- [ ] **P4-09** Add scheduled report exports to CSV, Excel and PDF, handled by background jobs.
+- [ ] **P4-10** Ask the owner for the launch market's tax rules, then build the required tax-authority integration. If launch requires it, do this before commercial launch.
+
+**Advanced inventory**
+- [ ] **P4-11** Add batch and expiry tracking, with first-expiry-first-out suggestions and expiry alerts.
+- [ ] **P4-12** Add branch stock transfers with request, dispatch, receive and discrepancy steps.
+- [ ] **P4-13** Add central purchasing across branches.
+- [ ] **P4-14** Add reorder suggestions from par levels and sales history.
+- [ ] **P4-15** Add demand forecasting and link it to purchase suggestions, as suggestions only.
+
+**Scale**
+- [ ] **P4-16** Add Redpanda and publish outbox events to `orders`, `billing`, `inventory` and `sync`, keyed by `restaurant_id`.
+- [ ] **P4-17** Make all consumers idempotent, with dead-letter topics and lag monitoring.
+- [ ] **P4-18** Add ClickHouse and move heavy reports to it, keeping PostgreSQL as the financial record.
+- [ ] **P4-19** Add PostgreSQL read replicas, and a standby with automatic failover.
+- [ ] **P4-20** Add monthly partition automation and a data retention policy.
+- [ ] **P4-21** Add point-in-time recovery and run a documented restore drill.
+- [ ] **P4-22** Load test lunch and dinner peaks at 1,000 restaurants, including mass reconnect sync bursts. Get the peak order figure from the owner first.
+- [ ] **P4-23** Fix what the load tests reveal. Add Citus or move a hot path to Go only if measurements show it is needed.
+- [ ] **P4-24** Run fault tests: kill each process, the broker, the hub and the database primary during live traffic.
+- [ ] **P4-25** Write runbooks for incidents, deployment, rollback, restore and new-branch setup.
+
+**Exit gate:** load tests pass at the agreed peak; killing any component causes no lost sale; the restore drill succeeds; all runbooks are complete.
+
+---
+
+## 8. Testing required in every phase
+
+| Area | Requirement |
+|---|---|
+| Tenant isolation | Every endpoint and RLS policy; required in CI |
+| Money | Same test cases on terminal and server, plus property tests |
+| Sync | Lost connections, retries, duplicates, crashes and long offline periods |
+| Hardware | Real printers and cash drawers on low-spec Windows 10 or later PCs |
+| Fault injection | Kill a process or the app mid-sale; billing continues and no data is lost |
+| End to end | Playwright flows for each critical POS and inventory path |
