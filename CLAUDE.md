@@ -196,7 +196,7 @@ Ask the owner when a task reaches one of these. Until then, keep the value confi
 - [x] **P1-08** Build `packages/contracts` with shared Zod schemas and generated TypeScript types.
 
 **Tenancy, identity and audit**
-- [ ] **P1-09** Create restaurant, branch, user, role, permission and device tables with row-level security.
+- [x] **P1-09** Create restaurant, branch, user, role, permission and device tables with row-level security.
 - [ ] **P1-10** Build tenant context middleware that takes the tenant only from the token and sets it per transaction.
 - [ ] **P1-11** Build login, refresh tokens, logout, password reset and server-side session revocation.
 - [ ] **P1-12** Build permission checks for the five roles, including branch-level access.

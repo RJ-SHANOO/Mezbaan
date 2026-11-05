@@ -6,9 +6,21 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src --max-warnings=0",
-    "migrate:check": "node scripts/check-migrations.mjs"
+    "test": "vitest run",
+    "migrate:check": "node scripts/check-migrations.mjs",
+    "migrate:generate": "drizzle-kit generate",
+    "migrate:run": "node dist/migrate.js",
+    "db:seed": "node dist/seed-cli.js"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.4",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.23.1",
+    "drizzle-kit": "^0.31.11"
   }
 }

@@ -1,6 +1,8 @@
 packages:
   - "apps/*"
   - "packages/*"
+allowBuilds:
+  esbuild: true
 minimumReleaseAgeExclude:
   - "@sentry/bundler-plugins@11.11.0"
   - "@sentry/core@11.11.0"

@@ -13,6 +13,26 @@ jobs:
   ci:
     name: Lint, typecheck, test, build
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: mezbaan
+          POSTGRES_PASSWORD: mezbaan_dev_password
+          POSTGRES_DB: mezbaan
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mezbaan -d mezbaan"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Owner connection, for migrations/seeding only — bypasses RLS (rule: never used
+      # for anything that reads or writes tenant data). See packages/db/.env.example.
+      DATABASE_URL: postgres://mezbaan:mezbaan_dev_password@localhost:5432/mezbaan
+      # Restricted role the tenant-isolation tests actually run as, so RLS applies.
+      APP_DATABASE_URL: postgres://mezbaan_app:mezbaan_app_dev_password@localhost:5432/mezbaan
     steps:
       - uses: actions/checkout@v4
 
@@ -41,11 +61,17 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Test
-        run: pnpm test
-
       - name: Build
         run: pnpm build
+
+      - name: Apply database migrations
+        run: node packages/db/dist/migrate.js
+
+      - name: Seed roles and permissions
+        run: node packages/db/dist/seed-cli.js
+
+      - name: Test
+        run: pnpm test
 
   migrations:
     name: Check migrations
