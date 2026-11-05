@@ -184,7 +184,7 @@ Ask the owner when a task reaches one of these. Until then, keep the value confi
 **Goal:** a secure, tested base on which all modules can run offline.
 
 **Repo and infrastructure**
-- [ ] **P1-01** Set up the monorepo in section 4 with strict TypeScript, ESLint, Prettier and Turborepo.
+- [x] **P1-01** Set up the monorepo in section 4 with strict TypeScript, ESLint, Prettier and Turborepo.
 - [ ] **P1-02** Add Docker Compose for local PostgreSQL, PgBouncer, Valkey and S3-compatible storage.
 - [ ] **P1-03** Add CI for lint, typecheck, tests and builds, with migrations checked on every pull request.
 - [ ] **P1-04** Add Sentry, structured logging, Prometheus metrics and health endpoints.
