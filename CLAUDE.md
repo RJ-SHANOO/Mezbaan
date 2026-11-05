@@ -188,7 +188,7 @@ Ask the owner when a task reaches one of these. Until then, keep the value confi
 - [x] **P1-02** Add Docker Compose for local PostgreSQL, PgBouncer, Valkey and S3-compatible storage.
 - [x] **P1-03** Add CI for lint, typecheck, tests and builds, with migrations checked on every pull request.
 - [x] **P1-04** Add Sentry, structured logging, Prometheus metrics and health endpoints.
-- [ ] **P1-05** Create `api-pos`, `api-admin`, `api-public`, `api-reports` and `worker` as separately deployable processes.
+- [x] **P1-05** Create `api-pos`, `api-admin`, `api-public`, `api-reports` and `worker` as separately deployable processes.
 
 **Shared domain**
 - [ ] **P1-06** Build `packages/domain` money utilities using integer minor units, with property-based tests.
