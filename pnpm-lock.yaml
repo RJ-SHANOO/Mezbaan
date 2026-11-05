@@ -372,6 +372,9 @@ importers:
 
   packages/nest-core:
     dependencies:
+      '@mezbaan/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@mezbaan/db':
         specifier: workspace:*
         version: link:../db
@@ -384,6 +387,9 @@ importers:
       '@sentry/node':
         specifier: ^11.11.0
         version: 11.11.0
+      drizzle-orm:
+        specifier: ^0.45.4
+        version: 0.45.4(@opentelemetry/api@1.10.0)(@types/pg@8.23.1)(pg@8.23.1)
       jsonwebtoken:
         specifier: ^9.0.3
         version: 9.0.3
@@ -399,10 +405,16 @@ importers:
       rxjs:
         specifier: ^7.8.2
         version: 7.8.2
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
     devDependencies:
       '@types/jsonwebtoken':
         specifier: ^9.0.10
         version: 9.0.10
+      '@types/pg':
+        specifier: ^8.23.1
+        version: 8.23.1
       fastify:
         specifier: ^5.12.8
         version: 5.12.8

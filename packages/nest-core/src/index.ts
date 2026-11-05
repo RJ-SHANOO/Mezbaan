@@ -20,3 +20,15 @@ export {
   type SignAccessTokenOptions,
   type TenantContextGuardOptions,
 } from "./tenant-context.js";
+export { hashPassword, verifyPassword } from "./password.js";
+export { generateOpaqueToken, hashOpaqueToken, parseOpaqueTokenRestaurantId } from "./opaque-token.js";
+export { parseOrBadRequest } from "./validation.js";
+export { DbModule, DATABASE, type DbModuleOptions } from "./db.module.js";
+export {
+  AuthService,
+  AUTH_OPTIONS,
+  type AuthServiceOptions,
+  type LoginResult,
+} from "./auth.service.js";
+export { AuthController } from "./auth.controller.js";
+export { AuthModule } from "./auth.module.js";

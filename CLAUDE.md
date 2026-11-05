@@ -198,7 +198,7 @@ Ask the owner when a task reaches one of these. Until then, keep the value confi
 **Tenancy, identity and audit**
 - [x] **P1-09** Create restaurant, branch, user, role, permission and device tables with row-level security.
 - [x] **P1-10** Build tenant context middleware that takes the tenant only from the token and sets it per transaction.
-- [ ] **P1-11** Build login, refresh tokens, logout, password reset and server-side session revocation.
+- [x] **P1-11** Build login, refresh tokens, logout, password reset and server-side session revocation.
 - [ ] **P1-12** Build permission checks for the five roles, including branch-level access.
 - [ ] **P1-13** Add a manager PIN for approving sensitive actions, online and offline.
 - [ ] **P1-14** Build the append-only audit log and record who, what, when, where and which device.

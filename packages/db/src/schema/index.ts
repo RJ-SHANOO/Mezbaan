@@ -5,3 +5,5 @@ export { permissions } from "./permissions.js";
 export { rolePermissions } from "./role-permissions.js";
 export { users } from "./users.js";
 export { devices } from "./devices.js";
+export { sessions } from "./sessions.js";
+export { passwordResetTokens } from "./password-reset-tokens.js";
