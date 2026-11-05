@@ -3,11 +3,13 @@ import { NestFactory } from "@nestjs/core";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
 import {
   createLogger,
+  DEV_JWT_SECRET,
   ensureDefaultMetrics,
   GlobalExceptionFilter,
   initSentry,
   PinoNestLogger,
   registerMetricsHooks,
+  TenantContextGuard,
 } from "@mezbaan/nest-core";
 import { AppModule } from "./app.module.js";
 
@@ -24,6 +26,7 @@ async function bootstrap(): Promise<void> {
   });
 
   app.useGlobalFilters(new GlobalExceptionFilter(logger));
+  app.useGlobalGuards(new TenantContextGuard({ secret: process.env.JWT_SECRET ?? DEV_JWT_SECRET }));
   registerMetricsHooks(app.getHttpAdapter().getInstance());
 
   const port = Number(process.env.PORT ?? DEFAULT_PORT);
