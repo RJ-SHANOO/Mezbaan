@@ -1,0 +1,95 @@
+name: mezbaan
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mezbaan}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mezbaan_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-mezbaan}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mezbaan} -d ${POSTGRES_DB:-mezbaan}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    restart: unless-stopped
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${POSTGRES_USER:-mezbaan}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-mezbaan_dev_password}
+      DB_NAME: ${POSTGRES_DB:-mezbaan}
+      POOL_MODE: ${PGBOUNCER_POOL_MODE:-transaction}
+      MAX_CLIENT_CONN: ${PGBOUNCER_MAX_CLIENT_CONN:-1000}
+      DEFAULT_POOL_SIZE: ${PGBOUNCER_DEFAULT_POOL_SIZE:-20}
+      AUTH_TYPE: scram-sha-256
+    ports:
+      - "${PGBOUNCER_PORT:-6432}:5432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    restart: unless-stopped
+    ports:
+      - "${VALKEY_PORT:-6379}:6379"
+    volumes:
+      - valkey_data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # S3-compatible storage. MinIO's Docker Hub images were removed in Sept 2026 and the
+  # Quay.io mirror now requires auth, so we use Garage (https://garagehq.deuxfleurs.fr)
+  # instead — it's still freely published and speaks the same S3 API.
+  garage:
+    image: dxflrs/garage:v1.0.1
+    restart: unless-stopped
+    volumes:
+      - ./garage.toml:/etc/garage.toml:ro
+      - garage_meta:/var/lib/garage/meta
+      - garage_data:/var/lib/garage/data
+    ports:
+      - "${GARAGE_S3_PORT:-9000}:3900"
+      - "${GARAGE_ADMIN_PORT:-3903}:3903"
+    healthcheck:
+      test: ["CMD", "/garage", "status"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-shot: assigns the single-node layout and creates the dev access key + bucket.
+  # Shares garage's network namespace since the garage image has no shell to exec into.
+  garage-init:
+    image: alpine:3.20
+    network_mode: "service:garage"
+    depends_on:
+      garage:
+        condition: service_healthy
+    environment:
+      GARAGE_ADMIN_TOKEN: ${GARAGE_ADMIN_TOKEN:-2925a2d4ba0a341fbce668efb3f61d612899db9c47306cb57472a9233b618cfa}
+      GARAGE_BUCKET: ${S3_BUCKET:-mezbaan-local}
+      GARAGE_KEY_NAME: ${S3_KEY_NAME:-mezbaan-local-key}
+      GARAGE_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-GKf72f4a98ea11b3a20ece3475}
+      GARAGE_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-e64b2bc9bd42da7e9d1f585cf1b7364468ef0f30810c08b5b03b05a2cf41a09d}
+    volumes:
+      - ./garage-init.sh:/garage-init.sh:ro
+    entrypoint: ["/bin/sh", "/garage-init.sh"]
+    restart: "no"
+
+volumes:
+  postgres_data:
+  valkey_data:
+  garage_meta:
+  garage_data:

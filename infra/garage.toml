@@ -1,0 +1,25 @@
+# Dev-only config for the local Garage (S3-compatible) node.
+# Secrets here are throwaway values for local Docker Compose only — never reused in staging/prod.
+metadata_dir = "/var/lib/garage/meta"
+data_dir = "/var/lib/garage/data"
+db_engine = "lmdb"
+
+replication_factor = 1
+
+rpc_bind_addr = "[::]:3901"
+rpc_public_addr = "127.0.0.1:3901"
+rpc_secret = "d49ca7ce4c69ff8e18746b59a128676399d012c2ba5b4f82c01d350ad785fad1"
+
+[s3_api]
+s3_region = "garage"
+api_bind_addr = "[::]:3900"
+root_domain = ".s3.garage.localhost"
+
+[s3_web]
+bind_addr = "[::]:3902"
+root_domain = ".web.garage.localhost"
+index = "index.html"
+
+[admin]
+api_bind_addr = "[::]:3903"
+admin_token = "2925a2d4ba0a341fbce668efb3f61d612899db9c47306cb57472a9233b618cfa"
