@@ -191,7 +191,7 @@ Ask the owner when a task reaches one of these. Until then, keep the value confi
 - [x] **P1-05** Create `api-pos`, `api-admin`, `api-public`, `api-reports` and `worker` as separately deployable processes.
 
 **Shared domain**
-- [ ] **P1-06** Build `packages/domain` money utilities using integer minor units, with property-based tests.
+- [x] **P1-06** Build `packages/domain` money utilities using integer minor units, with property-based tests.
 - [ ] **P1-07** Add tax, discount, service charge and rounding calculations with fixed test cases shared by terminal and server.
 - [ ] **P1-08** Build `packages/contracts` with shared Zod schemas and generated TypeScript types.
 
