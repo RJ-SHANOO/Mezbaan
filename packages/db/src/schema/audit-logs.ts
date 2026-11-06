@@ -3,12 +3,11 @@ import { restaurants } from "./restaurants.js";
 import { tenantMatch } from "./rls.js";
 
 /**
- * A minimal append-only audit log (bootstrapped early by P1-13, which needs somewhere
- * to record manager-PIN approvals; the full build-out — screens, coverage of every
- * sensitive action across every module — is P1-14). "Append-only" here is enforced by
- * convention: AuditLogService exposes only record(), never update/delete. Unlike the
- * financial tables in rule 4, there's no DB-level REVOKE UPDATE/DELETE yet — add one
- * if/when P1-14 decides that's warranted platform-wide.
+ * An append-only audit log (bootstrapped by P1-13 to record manager-PIN approvals,
+ * completed by P1-14: DB-level enforcement plus coverage of every sensitive action
+ * built so far). "Append-only" is enforced twice, same as rule 4's financial tables:
+ * AuditLogService exposes only record(), never update/delete, and app-role.ts REVOKEs
+ * UPDATE/DELETE on this table from the app role at the database level.
  */
 export const auditLogs = pgTable(
   "audit_logs",

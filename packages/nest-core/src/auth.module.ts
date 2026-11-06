@@ -1,4 +1,5 @@
 import { Module, type DynamicModule } from "@nestjs/common";
+import { AuditLogService } from "./audit-log.service.js";
 import { AUTH_OPTIONS, AuthService, type AuthServiceOptions } from "./auth.service.js";
 import { AuthController } from "./auth.controller.js";
 
@@ -10,7 +11,7 @@ export class AuthModule {
     return {
       module: AuthModule,
       controllers: [AuthController],
-      providers: [AuthService, { provide: AUTH_OPTIONS, useValue: options }],
+      providers: [AuthService, AuditLogService, { provide: AUTH_OPTIONS, useValue: options }],
       exports: [AuthService],
     };
   }

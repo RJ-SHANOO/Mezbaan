@@ -1,6 +1,7 @@
 import { Inject, Injectable, UnauthorizedException } from "@nestjs/common";
 import { and, eq, isNull } from "drizzle-orm";
 import { schema, withTenant, type Database } from "@mezbaan/db";
+import { AuditLogService } from "./audit-log.service.js";
 import { DATABASE } from "./db.module.js";
 import { generateOpaqueToken, hashOpaqueToken, parseOpaqueTokenRestaurantId } from "./opaque-token.js";
 import { hashPassword, verifyPassword } from "./password.js";
@@ -28,6 +29,7 @@ const INVALID_RESET_TOKEN = "Invalid or expired reset token";
 export class AuthService {
   constructor(
     @Inject(DATABASE) private readonly db: Database,
+    private readonly auditLogService: AuditLogService,
     @Inject(AUTH_OPTIONS) private readonly options: AuthServiceOptions,
   ) {}
 
@@ -164,14 +166,15 @@ export class AuthService {
   }
 
   /** Idempotent and silent on an already-meaningless token — logout should never be a
-   * user-facing error just because the client's token was already stale. */
+   * user-facing error just because the client's token was already stale. Only audits
+   * when a session was actually revoked — a no-op logout isn't a security event. */
   async logout(refreshToken: string): Promise<void> {
     const restaurantId = parseOpaqueTokenRestaurantId(refreshToken);
     if (!restaurantId) return;
     const tokenHash = hashOpaqueToken(refreshToken);
 
-    await withTenant(this.db, { restaurantId }, (tx) =>
-      tx
+    await withTenant(this.db, { restaurantId }, async (tx) => {
+      const revokedRows = await tx
         .update(schema.sessions)
         .set({ revokedAt: new Date() })
         .where(
@@ -180,8 +183,17 @@ export class AuthService {
             eq(schema.sessions.refreshTokenHash, tokenHash),
             isNull(schema.sessions.revokedAt),
           ),
-        ),
-    );
+        )
+        .returning({ userId: schema.sessions.userId });
+
+      const revoked = revokedRows[0];
+      if (revoked) {
+        await this.auditLogService.record(
+          { restaurantId, actorUserId: revoked.userId, action: "auth.logout", targetType: "session" },
+          tx,
+        );
+      }
+    });
   }
 
   /** Returns null whether the restaurant or the email didn't match — same "nothing to
@@ -258,6 +270,11 @@ export class AuthService {
         .update(schema.sessions)
         .set({ revokedAt: new Date() })
         .where(and(eq(schema.sessions.userId, resetRow.userId), isNull(schema.sessions.revokedAt)));
+
+      await this.auditLogService.record(
+        { restaurantId, actorUserId: resetRow.userId, action: "auth.password_reset", targetType: "user", targetId: resetRow.userId },
+        tx,
+      );
     });
   }
 }

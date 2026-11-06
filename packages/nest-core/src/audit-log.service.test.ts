@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { eq } from "drizzle-orm";
 import type { Pool } from "pg";
 import { createDb, createPool, schema, withTenant, type Database } from "@mezbaan/db";
 import { AuditLogService } from "./audit-log.service.js";
@@ -60,5 +61,23 @@ describe("AuditLogService.record()", () => {
 
     const seen = await withTenant(db, { restaurantId }, (tx) => tx.select().from(schema.auditLogs));
     expect(seen).toEqual([]);
+  });
+
+  it("is append-only at the database level — even a direct UPDATE/DELETE as the app role is rejected", async () => {
+    const restaurantId = await createRestaurant("audit-append-only");
+    await service.record({ restaurantId, action: "test.immutable" });
+
+    // Bypasses the service entirely: proves the guarantee is app-role.ts's REVOKE
+    // UPDATE, DELETE, not just "nobody happens to call update()/delete() today".
+    await expect(
+      withTenant(db, { restaurantId }, (tx) => tx.update(schema.auditLogs).set({ action: "tampered" }).where(eq(schema.auditLogs.restaurantId, restaurantId))),
+    ).rejects.toThrow();
+    await expect(
+      withTenant(db, { restaurantId }, (tx) => tx.delete(schema.auditLogs).where(eq(schema.auditLogs.restaurantId, restaurantId))),
+    ).rejects.toThrow();
+
+    const seen = await withTenant(db, { restaurantId }, (tx) => tx.select().from(schema.auditLogs));
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.action).toBe("test.immutable");
   });
 });

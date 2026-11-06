@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { eq } from "drizzle-orm";
 import type { Pool } from "pg";
 import { createDb, createPool, schema, withTenant, type Database } from "@mezbaan/db";
+import { AuditLogService } from "./audit-log.service.js";
 import { AuthService } from "./auth.service.js";
 import { hashPassword } from "./password.js";
 import { verifyAccessToken } from "./tenant-context.js";
@@ -18,7 +20,7 @@ let cashierRoleId: string;
 beforeAll(async () => {
   pool = createPool(APP_DATABASE_URL);
   db = createDb(pool);
-  authService = new AuthService(db, { jwtSecret: SECRET });
+  authService = new AuthService(db, new AuditLogService(db), { jwtSecret: SECRET });
 
   const rows = await db
     .insert(schema.roles)
@@ -69,6 +71,13 @@ async function createRestaurantWithUser(label: string): Promise<Fixture> {
   return { restaurantId: restaurant.id, slug, email, password, userId: user.id };
 }
 
+async function auditActions(restaurantId: string): Promise<string[]> {
+  const rows = await withTenant(db, { restaurantId }, (tx) =>
+    tx.select({ action: schema.auditLogs.action }).from(schema.auditLogs).where(eq(schema.auditLogs.restaurantId, restaurantId)),
+  );
+  return rows.map((r) => r.action);
+}
+
 describe("login()", () => {
   it("succeeds with correct credentials and the access token carries the right claims", async () => {
     const fixture = await createRestaurantWithUser("login-ok");
@@ -81,6 +90,9 @@ describe("login()", () => {
     expect(claims.restaurantId).toBe(fixture.restaurantId);
     expect(claims.roleKey).toBe("cashier");
     expect(claims.isSuperAdmin).toBe(false);
+    // Routine login success isn't an audited event (P1-14 scope) — only the
+    // security-state-changing actions below (logout, password reset) are.
+    expect(await auditActions(fixture.restaurantId)).toEqual([]);
   });
 
   it("rejects the wrong password", async () => {
@@ -123,15 +135,24 @@ describe("refresh() / logout()", () => {
     await expect(authService.refresh(first.refreshToken)).rejects.toThrow(); // rotated away, can't replay
   });
 
-  it("rejects a refresh token after logout", async () => {
+  it("rejects a refresh token after logout, and audits the logout", async () => {
     const fixture = await createRestaurantWithUser("logout-ok");
     const { refreshToken } = await authService.login({ restaurantSlug: fixture.slug, email: fixture.email, password: fixture.password });
     await authService.logout(refreshToken);
     await expect(authService.refresh(refreshToken)).rejects.toThrow();
+    expect(await auditActions(fixture.restaurantId)).toEqual(["auth.logout"]);
   });
 
-  it("logout is a silent no-op for a garbage token", async () => {
+  it("logout is a silent no-op for a garbage token, and doesn't audit anything", async () => {
     await expect(authService.logout("not-a-real-token")).resolves.toBeUndefined();
+  });
+
+  it("logging out an already-revoked session again doesn't double-audit", async () => {
+    const fixture = await createRestaurantWithUser("logout-twice");
+    const { refreshToken } = await authService.login({ restaurantSlug: fixture.slug, email: fixture.email, password: fixture.password });
+    await authService.logout(refreshToken);
+    await authService.logout(refreshToken); // already revoked — silent no-op, same as a garbage token
+    expect(await auditActions(fixture.restaurantId)).toEqual(["auth.logout"]);
   });
 
   it("rejects a garbage refresh token", async () => {
@@ -156,6 +177,7 @@ describe("password reset", () => {
       password: "a brand new password",
     });
     expect(loginResult.accessToken).toBeTruthy();
+    expect(await auditActions(fixture.restaurantId)).toEqual(["auth.password_reset"]);
   });
 
   it("revokes existing sessions when the password is reset", async () => {
