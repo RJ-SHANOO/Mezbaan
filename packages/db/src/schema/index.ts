@@ -7,3 +7,5 @@ export { users } from "./users.js";
 export { devices } from "./devices.js";
 export { sessions } from "./sessions.js";
 export { passwordResetTokens } from "./password-reset-tokens.js";
+export { managerPins } from "./manager-pins.js";
+export { auditLogs } from "./audit-logs.js";

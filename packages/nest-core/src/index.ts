@@ -35,3 +35,13 @@ export { AuthModule } from "./auth.module.js";
 export { RequirePermission, RequireBranchMatch, PERMISSION_KEY, BRANCH_MATCH_KEY } from "./permission.decorator.js";
 export { PermissionsService } from "./permissions.service.js";
 export { PermissionGuard } from "./permission.guard.js";
+export { AuditLogService, type AuditLogEntry } from "./audit-log.service.js";
+export {
+  ManagerPinService,
+  MANAGER_PIN_OPTIONS,
+  type ManagerPinServiceOptions,
+  type SetManagerPinParams,
+  type ApproveWithManagerPinParams,
+} from "./manager-pin.service.js";
+export { ManagerPinController } from "./manager-pin.controller.js";
+export { ManagerPinModule } from "./manager-pin.module.js";

@@ -17,3 +17,11 @@ export {
   PasswordResetConfirmSchema,
   type PasswordResetConfirm,
 } from "./auth.js";
+export {
+  SetManagerPinSchema,
+  type SetManagerPin,
+  ManagerPinApprovableActionSchema,
+  type ManagerPinApprovableAction,
+  ApproveManagerPinSchema,
+  type ApproveManagerPin,
+} from "./manager-pin.js";
