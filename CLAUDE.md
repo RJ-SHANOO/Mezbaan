@@ -199,7 +199,7 @@ Ask the owner when a task reaches one of these. Until then, keep the value confi
 - [x] **P1-09** Create restaurant, branch, user, role, permission and device tables with row-level security.
 - [x] **P1-10** Build tenant context middleware that takes the tenant only from the token and sets it per transaction.
 - [x] **P1-11** Build login, refresh tokens, logout, password reset and server-side session revocation.
-- [ ] **P1-12** Build permission checks for the five roles, including branch-level access.
+- [x] **P1-12** Build permission checks for the five roles, including branch-level access.
 - [ ] **P1-13** Add a manager PIN for approving sensitive actions, online and offline.
 - [ ] **P1-14** Build the append-only audit log and record who, what, when, where and which device.
 - [ ] **P1-15** Build restaurant onboarding: signup, first branch, default roles and locked commission settings.
@@ -223,6 +223,12 @@ Ask the owner when a task reaches one of these. Until then, keep the value confi
 - [ ] **P1-29** Add a sync status indicator showing online state, pending count and last successful sync.
 - [ ] **P1-30** Build the PostgreSQL outbox table and a worker that processes it with no broker.
 - [ ] **P1-31** Add fault tests for lost connections, duplicates, crashes mid-sync and terminals offline for several days.
+
+**Performance**
+- [ ] **P1-32** Add `pg_stat_statements`, slow query logging and a performance dashboard.
+- [ ] **P1-33** Add N+1 query detection and query plan checks for critical queries in CI.
+- [ ] **P1-34** Make Turborepo build caching work locally and in CI.
+- [ ] **P1-35** Make sync send only changes, in compressed batches, with backoff and a random delay so terminals do not all reconnect at once.
 
 **Exit gate:** sync passes all fault tests; tenant isolation tests cover every endpoint; killing any process leaves the others running.
 
@@ -288,6 +294,14 @@ Ask the owner when a task reaches one of these. Until then, keep the value confi
 **Basic reports for the pilot**
 - [ ] **P2-40** Add a daily sales summary, payment breakdown and void, discount and refund reports.
 
+**Performance**
+- [ ] **P2-41** Index SQLite for POS searches, and use list virtualization for long menus and order lists.
+- [ ] **P2-42** Load POS, kitchen and admin screens separately through code splitting.
+- [ ] **P2-43** Cache versioned menus and prices in Redis, and clear the cache when a new version is published.
+- [ ] **P2-44** Serve optimized images with WebP, resizing and long-lived caching through R2 and Cloudflare, with Brotli or gzip for web assets.
+- [ ] **P2-45** Keep the desktop POS working from local data, with no network call in the sale path.
+- [ ] **P2-46** Add cursor pagination to all large API lists.
+
 **Exit gate:** a pilot branch runs full service, including an internet outage and a hub restart, with no lost or duplicated sales. Totals match between terminals and server.
 
 ---
@@ -350,6 +364,11 @@ Ask the owner when a task reaches one of these. Until then, keep the value confi
 - [ ] **P3-39** Build Super Admin: restaurant list, status, plans, devices, platform revenue and support tools.
 - [ ] **P3-40** Add full audit logging and a clear visible notice whenever Super Admin acts on a restaurant's data.
 
+**Performance**
+- [ ] **P3-41** Add database indexes based on real inventory and report queries, and remove unused ones.
+- [ ] **P3-42** Use set-based batch processing for stock deductions and commission runs, while keeping them idempotent.
+- [ ] **P3-43** Run heavy reports and exports through background jobs with separate BullMQ queues and concurrency limits, so they cannot slow down sales.
+
 **Exit gate:** stock movements reconcile with real sales in the pilot; a ledger rebuild matches stored stock levels; commission matches invoices and refunds; the kitchen works through an internet outage.
 
 ---
@@ -391,6 +410,11 @@ Ask the owner when a task reaches one of these. Until then, keep the value confi
 - [ ] **P4-24** Run fault tests: kill each process, the broker, the hub and the database primary during live traffic.
 - [ ] **P4-25** Write runbooks for incidents, deployment, rollback, restore and new-branch setup.
 
+**Performance**
+- [ ] **P4-26** Add k6 performance tests against agreed limits for critical paths, and fail the build on a significant regression.
+- [ ] **P4-27** Add PgBouncer pool tuning, read routing for reports, and capacity limits per process based on load test results.
+- [ ] **P4-28** Review costs per restaurant, including VPS, R2 and data retention.
+
 **Exit gate:** load tests pass at the agreed peak; killing any component causes no lost sale; the restore drill succeeds; all runbooks are complete.
 
 ---
@@ -405,3 +429,19 @@ Ask the owner when a task reaches one of these. Until then, keep the value confi
 | Hardware | Real printers and cash drawers on low-spec Windows 10 or later PCs |
 | Fault injection | Kill a process or the app mid-sale; billing continues and no data is lost |
 | End to end | Playwright flows for each critical POS and inventory path |
+
+---
+
+## 9. Performance requirements
+
+Starting targets, to be tested on a low-spec Windows 10 POS PC and adjusted only after measuring:
+
+- Adding an item to the cart: under 100 ms.
+- Finishing a sale locally: under 500 ms, with printing and sync never holding it up.
+- Desktop app startup: under 3 seconds.
+- Main POS API reads: p95 under 200 ms at normal load.
+
+Rules:
+
+- Measure before optimizing. Add caches, new services or rewrites only when data shows they are needed.
+- Performance work must never weaken tenant isolation, financial accuracy, offline safety or the rules in section 2. Never cache data across tenants, and always include `restaurant_id` in cache keys.

@@ -1,12 +1,16 @@
 import "reflect-metadata";
-import { NestFactory } from "@nestjs/core";
+import { NestFactory, Reflector } from "@nestjs/core";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
+import type { Database } from "@mezbaan/db";
 import {
   createLogger,
+  DATABASE,
   DEV_JWT_SECRET,
   ensureDefaultMetrics,
   GlobalExceptionFilter,
   initSentry,
+  PermissionGuard,
+  PermissionsService,
   PinoNestLogger,
   registerMetricsHooks,
   TenantContextGuard,
@@ -26,7 +30,12 @@ async function bootstrap(): Promise<void> {
   });
 
   app.useGlobalFilters(new GlobalExceptionFilter(logger));
-  app.useGlobalGuards(new TenantContextGuard({ secret: process.env.JWT_SECRET ?? DEV_JWT_SECRET }));
+  // Order matters: PermissionGuard reads getTenantContext(), which TenantContextGuard
+  // must have already populated for this request.
+  app.useGlobalGuards(
+    new TenantContextGuard({ secret: process.env.JWT_SECRET ?? DEV_JWT_SECRET }),
+    new PermissionGuard(new PermissionsService(app.get<Database>(DATABASE)), app.get(Reflector)),
+  );
   registerMetricsHooks(app.getHttpAdapter().getInstance());
 
   const port = Number(process.env.PORT ?? DEFAULT_PORT);

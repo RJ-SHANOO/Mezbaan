@@ -199,6 +199,9 @@ importers:
 
   apps/api-admin:
     dependencies:
+      '@mezbaan/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@mezbaan/nest-core':
         specifier: workspace:*
         version: link:../../packages/nest-core
@@ -227,6 +230,9 @@ importers:
 
   apps/api-pos:
     dependencies:
+      '@mezbaan/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@mezbaan/nest-core':
         specifier: workspace:*
         version: link:../../packages/nest-core
@@ -255,6 +261,9 @@ importers:
 
   apps/api-public:
     dependencies:
+      '@mezbaan/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@mezbaan/nest-core':
         specifier: workspace:*
         version: link:../../packages/nest-core
@@ -283,6 +292,9 @@ importers:
 
   apps/api-reports:
     dependencies:
+      '@mezbaan/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@mezbaan/nest-core':
         specifier: workspace:*
         version: link:../../packages/nest-core

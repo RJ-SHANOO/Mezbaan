@@ -32,3 +32,6 @@ export {
 } from "./auth.service.js";
 export { AuthController } from "./auth.controller.js";
 export { AuthModule } from "./auth.module.js";
+export { RequirePermission, RequireBranchMatch, PERMISSION_KEY, BRANCH_MATCH_KEY } from "./permission.decorator.js";
+export { PermissionsService } from "./permissions.service.js";
+export { PermissionGuard } from "./permission.guard.js";
