@@ -14,7 +14,8 @@
     },
     "test": {
       "dependsOn": ["^build"],
-      "outputs": []
+      "outputs": [],
+      "env": ["DATABASE_URL", "APP_DATABASE_URL", "JWT_SECRET"]
     },
     "dev": {
       "cache": false,

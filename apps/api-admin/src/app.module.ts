@@ -8,7 +8,7 @@ const DEFAULT_APP_DATABASE_URL = "postgres://mezbaan_app:mezbaan_app_dev_passwor
     DbModule.forRoot({ connectionString: process.env.APP_DATABASE_URL ?? DEFAULT_APP_DATABASE_URL }),
     AuthModule.forRoot({ jwtSecret: process.env.JWT_SECRET ?? DEV_JWT_SECRET }),
     ManagerPinModule.forRoot(),
-    OnboardingModule.forRoot({ jwtSecret: process.env.JWT_SECRET ?? DEV_JWT_SECRET }),
+    OnboardingModule.forRoot(),
   ],
   controllers: [HealthController, MetricsController],
 })

@@ -92,3 +92,63 @@ jobs:
 
       - name: Check for pending schema changes without a migration
         run: pnpm --filter @mezbaan/db run migrate:check
+
+  tenant-isolation:
+    name: Tenant isolation (RLS + endpoints)
+    runs-on: ubuntu-latest
+    # Split out from the `ci` job (P1-16) so it's a status check that can be marked
+    # required on its own — a tenant-isolation regression anywhere shouldn't be
+    # mergeable just because some unrelated test also happened to be green.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: mezbaan
+          POSTGRES_PASSWORD: mezbaan_dev_password
+          POSTGRES_DB: mezbaan
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mezbaan -d mezbaan"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://mezbaan:mezbaan_dev_password@localhost:5432/mezbaan
+      APP_DATABASE_URL: postgres://mezbaan_app:mezbaan_app_dev_password@localhost:5432/mezbaan
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Cache turbo
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-
+
+      - name: Build
+        run: pnpm build
+
+      - name: Apply database migrations
+        run: node packages/db/dist/migrate.js
+
+      - name: Seed roles and permissions
+        run: node packages/db/dist/seed-cli.js
+
+      - name: Every RLS policy (packages/db)
+        run: pnpm --filter @mezbaan/db run test:tenant-isolation
+
+      - name: Every authenticated endpoint (api-admin)
+        run: pnpm --filter @mezbaan/api-admin run test:tenant-isolation

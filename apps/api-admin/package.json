@@ -9,7 +9,9 @@
     "dev": "nest start --watch",
     "start": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "eslint src --max-warnings=0"
+    "lint": "eslint src --max-warnings=0",
+    "test": "vitest run",
+    "test:tenant-isolation": "vitest run tenant-isolation"
   },
   "dependencies": {
     "@mezbaan/db": "workspace:*",

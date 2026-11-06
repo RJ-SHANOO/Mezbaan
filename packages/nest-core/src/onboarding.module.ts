@@ -1,27 +1,21 @@
 import { Module, type DynamicModule } from "@nestjs/common";
 import { AuditLogService } from "./audit-log.service.js";
-import { AuthModule } from "./auth.module.js";
-import type { AuthServiceOptions } from "./auth.service.js";
 import { ONBOARDING_OPTIONS, OnboardingService, type OnboardingServiceOptions } from "./onboarding.service.js";
 import { OnboardingController } from "./onboarding.controller.js";
 
-export type OnboardingModuleOptions = OnboardingServiceOptions & AuthServiceOptions;
-
 @Module({})
 export class OnboardingModule {
-  /** Requires DbModule.forRoot(...) to already be imported, same as AuthModule. Takes
-   * the same jwt options as the app's own AuthModule.forRoot — signup logs the new
-   * owner in immediately (see OnboardingController), so it needs an AuthService
-   * configured identically, even though that means a second, independent instance
-   * rather than reusing the app-level one (both are stateless, so this is harmless —
-   * same pattern as PermissionsService being instantiated per-module elsewhere). */
-  static forRoot(options: OnboardingModuleOptions): DynamicModule {
-    const { defaultCommissionRateBasisPoints, ...authOptions } = options;
+  /** Requires DbModule.forRoot(...) and AuthModule.forRoot(...) to already be imported
+   * somewhere in the app (for the DATABASE provider and AuthService respectively).
+   * Doesn't import AuthModule itself: AuthModule.forRoot is global (see its own doc
+   * comment for why), so OnboardingController's AuthService dependency resolves from
+   * whichever single registration the app already has, with no second instance and
+   * no risk of double-registering /auth/* routes. */
+  static forRoot(options: OnboardingServiceOptions = {}): DynamicModule {
     return {
       module: OnboardingModule,
-      imports: [AuthModule.forRoot(authOptions)],
       controllers: [OnboardingController],
-      providers: [OnboardingService, AuditLogService, { provide: ONBOARDING_OPTIONS, useValue: { defaultCommissionRateBasisPoints } }],
+      providers: [OnboardingService, AuditLogService, { provide: ONBOARDING_OPTIONS, useValue: options }],
       exports: [OnboardingService],
     };
   }

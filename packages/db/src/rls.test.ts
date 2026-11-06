@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import type { Pool } from "pg";
 import { createDb, createPool, withTenant, type Database } from "./client.js";
-import { auditLogs, branches, devices, managerPins, restaurants, roles, users } from "./schema/index.js";
+import { auditLogs, branches, devices, managerPins, passwordResetTokens, restaurants, roles, sessions, users } from "./schema/index.js";
 
 /**
  * Connects as the restricted `mezbaan_app` role (see app-role.ts) — NOT the migration
@@ -153,27 +153,27 @@ describe("branches/devices — tenant isolation and cross-tenant write rejection
   });
 });
 
+async function createUser(restaurantId: string, label: string): Promise<string> {
+  const roleRows = await db
+    .insert(roles)
+    .values({ key: "cashier", name: "Cashier" })
+    .onConflictDoUpdate({ target: roles.key, set: { name: "Cashier" } })
+    .returning({ id: roles.id });
+  const role = roleRows[0];
+  if (!role) throw new Error("fixture: role insert returned no row");
+
+  const userRows = await withTenant(db, { restaurantId }, (tx) =>
+    tx
+      .insert(users)
+      .values({ restaurantId, roleId: role.id, email: `${label}@example.test`, passwordHash: "unused", displayName: label })
+      .returning({ id: users.id }),
+  );
+  const user = userRows[0];
+  if (!user) throw new Error("fixture: user insert returned no row");
+  return user.id;
+}
+
 describe("manager_pins/audit_logs — tenant isolation", () => {
-  async function createUser(restaurantId: string, label: string): Promise<string> {
-    const roleRows = await db
-      .insert(roles)
-      .values({ key: "cashier", name: "Cashier" })
-      .onConflictDoUpdate({ target: roles.key, set: { name: "Cashier" } })
-      .returning({ id: roles.id });
-    const role = roleRows[0];
-    if (!role) throw new Error("fixture: role insert returned no row");
-
-    const userRows = await withTenant(db, { restaurantId }, (tx) =>
-      tx
-        .insert(users)
-        .values({ restaurantId, roleId: role.id, email: `${label}@example.test`, passwordHash: "unused", displayName: label })
-        .returning({ id: users.id }),
-    );
-    const user = userRows[0];
-    if (!user) throw new Error("fixture: user insert returned no row");
-    return user.id;
-  }
-
   it("a manager_pins row is invisible to another tenant's session", async () => {
     const restaurantAId = await createRestaurant("Tenant Q");
     const restaurantBId = await createRestaurant("Tenant R");
@@ -215,5 +215,83 @@ describe("manager_pins/audit_logs — tenant isolation", () => {
 
     const seenByA = await withTenant(db, { restaurantId: restaurantAId }, (tx) => tx.select().from(auditLogs));
     expect(seenByA).toHaveLength(1);
+  });
+});
+
+describe("sessions/password_reset_tokens — tenant isolation (P1-16)", () => {
+  it("a sessions row is invisible to another tenant's session", async () => {
+    const restaurantAId = await createRestaurant("Tenant W");
+    const restaurantBId = await createRestaurant("Tenant X");
+    const userAId = await createUser(restaurantAId, "session-tenant-a");
+
+    await withTenant(db, { restaurantId: restaurantAId }, (tx) =>
+      tx.insert(sessions).values({
+        restaurantId: restaurantAId,
+        userId: userAId,
+        refreshTokenHash: "irrelevant",
+        expiresAt: new Date(Date.now() + 60_000),
+      }),
+    );
+
+    const seenByB = await withTenant(db, { restaurantId: restaurantBId }, (tx) => tx.select().from(sessions));
+    expect(seenByB).toEqual([]);
+
+    const seenByA = await withTenant(db, { restaurantId: restaurantAId }, (tx) => tx.select().from(sessions));
+    expect(seenByA).toHaveLength(1);
+  });
+
+  it("rejects inserting a sessions row for a different restaurant than the session's own tenant", async () => {
+    const restaurantAId = await createRestaurant("Tenant Y");
+    const restaurantBId = await createRestaurant("Tenant Z");
+    const userBId = await createUser(restaurantBId, "session-tenant-b");
+
+    await expect(
+      withTenant(db, { restaurantId: restaurantAId }, (tx) =>
+        tx.insert(sessions).values({
+          restaurantId: restaurantBId,
+          userId: userBId,
+          refreshTokenHash: "irrelevant",
+          expiresAt: new Date(Date.now() + 60_000),
+        }),
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("a password_reset_tokens row is invisible to another tenant's session", async () => {
+    const restaurantAId = await createRestaurant("Tenant AA");
+    const restaurantBId = await createRestaurant("Tenant BB");
+    const userAId = await createUser(restaurantAId, "reset-tenant-a");
+
+    await withTenant(db, { restaurantId: restaurantAId }, (tx) =>
+      tx.insert(passwordResetTokens).values({
+        restaurantId: restaurantAId,
+        userId: userAId,
+        tokenHash: "irrelevant",
+        expiresAt: new Date(Date.now() + 60_000),
+      }),
+    );
+
+    const seenByB = await withTenant(db, { restaurantId: restaurantBId }, (tx) => tx.select().from(passwordResetTokens));
+    expect(seenByB).toEqual([]);
+
+    const seenByA = await withTenant(db, { restaurantId: restaurantAId }, (tx) => tx.select().from(passwordResetTokens));
+    expect(seenByA).toHaveLength(1);
+  });
+
+  it("rejects inserting a password_reset_tokens row for a different restaurant than the session's own tenant", async () => {
+    const restaurantAId = await createRestaurant("Tenant CC");
+    const restaurantBId = await createRestaurant("Tenant DD");
+    const userBId = await createUser(restaurantBId, "reset-tenant-b");
+
+    await expect(
+      withTenant(db, { restaurantId: restaurantAId }, (tx) =>
+        tx.insert(passwordResetTokens).values({
+          restaurantId: restaurantBId,
+          userId: userBId,
+          tokenHash: "irrelevant",
+          expiresAt: new Date(Date.now() + 60_000),
+        }),
+      ),
+    ).rejects.toThrow();
   });
 });

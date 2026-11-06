@@ -203,7 +203,7 @@ Ask the owner when a task reaches one of these. Until then, keep the value confi
 - [ ] **P1-13** Add a manager PIN for approving sensitive actions, online and offline. Online half (server-side approve/lockout/audit) done; offline half depends on P1-27 and P1-27b — don't check this box until those land too.
 - [x] **P1-14** Build the append-only audit log and record who, what, when, where and which device.
 - [x] **P1-15** Build restaurant onboarding: signup, first branch, default roles and locked commission settings.
-- [ ] **P1-16** Port `TenantIsolationTest`, extend it to every endpoint and RLS policy, and make it a required CI check.
+- [x] **P1-16** Port `TenantIsolationTest`, extend it to every endpoint and RLS policy, and make it a required CI check.
 - [ ] **P1-17** Build Branch CRUD and user invitation screens as the reference pattern for later modules.
 
 **Desktop foundation**

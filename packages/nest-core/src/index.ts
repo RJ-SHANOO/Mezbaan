@@ -53,4 +53,4 @@ export {
   type SignupResult,
 } from "./onboarding.service.js";
 export { OnboardingController } from "./onboarding.controller.js";
-export { OnboardingModule, type OnboardingModuleOptions } from "./onboarding.module.js";
+export { OnboardingModule } from "./onboarding.module.js";

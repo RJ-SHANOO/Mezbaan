@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { ConflictException } from "@nestjs/common";
 import { eq } from "drizzle-orm";
 import type { Pool } from "pg";
 import { createDb, createPool, schema, withTenant, type Database } from "@mezbaan/db";
@@ -82,13 +83,19 @@ describe("OnboardingService.signup()", () => {
     expect(rate).toBe(750);
   });
 
-  it("rejects a slug that's already taken", async () => {
+  it("rejects a slug that's already taken, with a 409 — not a crash", async () => {
     const params = signupParams("signup-dup-slug");
     await onboardingService.signup(params);
 
+    // Specifically a ConflictException, not just "something threw" — a looser
+    // assertion here previously let a real bug through: the duplicate-slug INSERT's
+    // unique-violation error was never actually being recognized as one (it checked
+    // the wrong property on the wrapped drizzle error), so this surfaced as an
+    // unhandled 500 instead of a clean 409. Caught by apps/api-admin's
+    // tenant-isolation e2e suite (P1-16), which asserts the HTTP status directly.
     await expect(
       onboardingService.signup({ ...signupParams("signup-dup-slug-2"), slug: params.slug }),
-    ).rejects.toThrow();
+    ).rejects.toBeInstanceOf(ConflictException);
   });
 
   it("the commission rate can't be changed after signup, even bypassing the service", async () => {
