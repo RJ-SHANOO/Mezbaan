@@ -17,6 +17,7 @@ export {
   PasswordResetConfirmSchema,
   type PasswordResetConfirm,
 } from "./auth.js";
+export { SignupRequestSchema, type SignupRequest, SignupResponseSchema, type SignupResponse } from "./onboarding.js";
 export {
   SetManagerPinSchema,
   type SetManagerPin,

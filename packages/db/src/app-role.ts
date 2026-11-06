@@ -22,4 +22,13 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE O
 -- Runs every migrate:run, idempotently — revoking an already-revoked privilege is a
 -- no-op. Add a line here whenever a new append-only table is introduced.
 REVOKE UPDATE, DELETE ON audit_logs FROM mezbaan_app;
+
+-- Commission rate locked at registration (rule 7): revoke the blanket UPDATE the
+-- broad grant above just gave and re-grant it only for the columns allowed to change
+-- after signup (name, status, updated_at) — commission_rate_basis_points is excluded,
+-- so no code path, today or in the future, can alter it once P1-15 sets it. A
+-- column-level GRANT can't narrow an existing table-level one on its own; the
+-- table-level UPDATE has to be revoked first, which is why both lines are needed.
+REVOKE UPDATE ON restaurants FROM mezbaan_app;
+GRANT UPDATE (name, status, updated_at) ON restaurants TO mezbaan_app;
 `;

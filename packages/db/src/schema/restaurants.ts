@@ -24,7 +24,9 @@ export const restaurants = pgTable(
       .notNull()
       .default("active"),
     // Locked at registration (rule 7): later plan changes never alter past commission
-    // entries, which snapshot the rate that was in effect at the time.
+    // entries, which snapshot the rate that was in effect at the time. Enforced at the
+    // DB level too — app-role.ts grants mezbaan_app UPDATE on every other column but
+    // this one, so nothing can change it after the signup INSERT (P1-15).
     commissionRateBasisPoints: integer("commission_rate_basis_points").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

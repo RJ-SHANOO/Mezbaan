@@ -45,3 +45,12 @@ export {
 } from "./manager-pin.service.js";
 export { ManagerPinController } from "./manager-pin.controller.js";
 export { ManagerPinModule } from "./manager-pin.module.js";
+export {
+  OnboardingService,
+  ONBOARDING_OPTIONS,
+  type OnboardingServiceOptions,
+  type SignupParams,
+  type SignupResult,
+} from "./onboarding.service.js";
+export { OnboardingController } from "./onboarding.controller.js";
+export { OnboardingModule, type OnboardingModuleOptions } from "./onboarding.module.js";
