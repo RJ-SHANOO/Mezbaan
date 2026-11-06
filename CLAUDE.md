@@ -200,7 +200,7 @@ Ask the owner when a task reaches one of these. Until then, keep the value confi
 - [x] **P1-10** Build tenant context middleware that takes the tenant only from the token and sets it per transaction.
 - [x] **P1-11** Build login, refresh tokens, logout, password reset and server-side session revocation.
 - [x] **P1-12** Build permission checks for the five roles, including branch-level access.
-- [ ] **P1-13** Add a manager PIN for approving sensitive actions, online and offline.
+- [ ] **P1-13** Add a manager PIN for approving sensitive actions, online and offline. Online half (server-side approve/lockout/audit) done; offline half depends on P1-27 and P1-27b — don't check this box until those land too.
 - [ ] **P1-14** Build the append-only audit log and record who, what, when, where and which device.
 - [ ] **P1-15** Build restaurant onboarding: signup, first branch, default roles and locked commission settings.
 - [ ] **P1-16** Port `TenantIsolationTest`, extend it to every endpoint and RLS policy, and make it a required CI check.
@@ -218,7 +218,8 @@ Ask the owner when a task reaches one of these. Until then, keep the value confi
 - [ ] **P1-24** Build the local operation log, with each write and its operation saved in one transaction.
 - [ ] **P1-25** Build the sync client: batching, ordering, retry with backoff, and resume after a crash.
 - [ ] **P1-26** Build the server sync endpoint with idempotency, validation and a per-operation result.
-- [ ] **P1-27** Build downstream sync for menu, prices, staff and settings with versioned, signed snapshots.
+- [ ] **P1-27** Build downstream sync for menu, prices, staff and settings with versioned, signed snapshots, including each manager's PIN hash so approvals in P1-13 work offline.
+- [ ] **P1-27b** Build offline manager-PIN verification: once P1-27 syncs the signed PIN-hash bundle, verify a manager's PIN against it locally with no server round-trip, and apply the same lockout rule as the online path. Depends on P1-19 (local SQLite) and P1-27.
 - [ ] **P1-28** Build per-terminal document number series.
 - [ ] **P1-29** Add a sync status indicator showing online state, pending count and last successful sync.
 - [ ] **P1-30** Build the PostgreSQL outbox table and a worker that processes it with no broker.
