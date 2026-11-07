@@ -14,7 +14,8 @@
     "migrate:check": "node scripts/check-migrations.mjs",
     "migrate:generate": "drizzle-kit generate",
     "migrate:run": "node dist/migrate.js",
-    "db:seed": "node dist/seed-cli.js"
+    "db:seed": "node dist/seed-cli.js",
+    "release:register": "node dist/register-release-cli.js"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.4",
