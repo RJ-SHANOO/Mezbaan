@@ -210,7 +210,7 @@ Ask the owner when a task reaches one of these. Until then, keep the value confi
 - [x] **P1-18** Create the Tauri 2 app with separate POS and kitchen windows, and error boundaries per module.
 - [x] **P1-19** Add encrypted SQLite in WAL mode with migrations and an integrity check at startup.
 - [x] **P1-20** Add device pairing, token storage and remote device revocation.
-- [ ] **P1-21** Add signed auto-updates with staged rollout and automatic rollback.
+- [ ] **P1-21** Add signed auto-updates with staged rollout and automatic rollback. Signing, the staged-rollout update-check endpoint, and rollback *detection* are built and tested end to end. The actual restart-with-the-rolled-back-binary execution is P1-22's watchdog's job (same online/offline-style split as P1-13/P1-27b). Don't check this box until (a) P1-22 lands and actually acts on a rollback decision, and (b) the tag-triggered release workflow (.github/workflows/release.yml) has run for real at least once — it was written against Tauri/tauri-action's documented conventions but never executed (no way to run a cross-platform build matrix in a dev sandbox), so treat the first real `git tag desktop-v... && git push --tags` as a dry run that may need a small fix.
 - [ ] **P1-22** Add a watchdog that restarts the app and restores in-progress work.
 - [ ] **P1-23** Add remote per-module feature flags per restaurant.
 
