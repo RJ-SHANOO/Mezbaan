@@ -1,4 +1,6 @@
 mod db;
+mod device_token;
+mod secure_store;
 
 use std::sync::Mutex;
 use tauri::Manager;
@@ -6,6 +8,11 @@ use tauri::Manager;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![
+            device_token::store_device_token,
+            device_token::get_device_token,
+            device_token::clear_device_token,
+        ])
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
