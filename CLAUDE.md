@@ -204,7 +204,7 @@ Ask the owner when a task reaches one of these. Until then, keep the value confi
 - [x] **P1-14** Build the append-only audit log and record who, what, when, where and which device.
 - [x] **P1-15** Build restaurant onboarding: signup, first branch, default roles and locked commission settings.
 - [x] **P1-16** Port `TenantIsolationTest`, extend it to every endpoint and RLS policy, and make it a required CI check.
-- [ ] **P1-17** Build Branch CRUD and user invitation screens as the reference pattern for later modules. Lives in `apps/web` (React/Vite), not the Tauri desktop app — branch/staff management needs no offline support or hardware access, and doesn't need P1-18's Tauri shell to exist first (decided 2026-11-07; see the repo structure note in section 4).
+- [x] **P1-17** Build Branch CRUD and user invitation screens as the reference pattern for later modules. Lives in `apps/web` (React/Vite), not the Tauri desktop app — branch/staff management needs no offline support or hardware access, and doesn't need P1-18's Tauri shell to exist first (decided 2026-11-07; see the repo structure note in section 4).
 
 **Desktop foundation**
 - [ ] **P1-18** Create the Tauri 2 app with separate POS and kitchen windows, and error boundaries per module.

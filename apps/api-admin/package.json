@@ -14,6 +14,7 @@
     "test:tenant-isolation": "vitest run tenant-isolation"
   },
   "dependencies": {
+    "@fastify/cors": "^11.4.0",
     "@mezbaan/db": "workspace:*",
     "@mezbaan/nest-core": "workspace:*",
     "@nestjs/common": "^12.3.3",

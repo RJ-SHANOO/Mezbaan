@@ -29,6 +29,15 @@ async function bootstrap(): Promise<void> {
     logger: new PinoNestLogger({ serviceName: SERVICE_NAME }),
   });
 
+  // apps/web (a browser SPA, a different origin) calls this API directly — without
+  // this, every request fails the browser's CORS preflight before it even reaches a
+  // guard. No credentials (cookies) are used, just a bearer token in the Authorization
+  // header, so there's no need for origin-reflecting/credentialed CORS.
+  app.enableCors({
+    origin: (process.env.CORS_ORIGIN ?? "http://localhost:5173").split(","),
+    methods: ["GET", "POST", "PATCH", "DELETE"],
+  });
+
   app.useGlobalFilters(new GlobalExceptionFilter(logger));
   // Order matters: PermissionGuard reads getTenantContext(), which TenantContextGuard
   // must have already populated for this request.
