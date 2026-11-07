@@ -4,6 +4,7 @@ import {
   BranchesModule,
   DbModule,
   DEV_JWT_SECRET,
+  DevicesAdminModule,
   HealthController,
   ManagerPinModule,
   MetricsController,
@@ -21,6 +22,7 @@ const DEFAULT_APP_DATABASE_URL = "postgres://mezbaan_app:mezbaan_app_dev_passwor
     OnboardingModule.forRoot(),
     BranchesModule.forRoot(),
     UserInvitationModule.forRoot(),
+    DevicesAdminModule.forRoot(),
   ],
   controllers: [HealthController, MetricsController],
 })

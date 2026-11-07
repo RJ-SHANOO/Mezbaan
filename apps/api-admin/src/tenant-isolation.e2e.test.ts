@@ -250,6 +250,77 @@ describe("tenant isolation — api-admin HTTP endpoints", () => {
       payload: { email: `someone-else-${randomUUID()}@example.test`, roleKey: "cashier" },
     });
     expect(inviteSomeoneElse.statusCode).toBe(403);
+
+    const createDevice = await app.inject({
+      method: "POST",
+      url: "/devices",
+      headers: { authorization: `Bearer ${cashierToken}` },
+      payload: { label: "Cashier's Terminal", deviceType: "pos_terminal", branchId: tenant.branchId },
+    });
+    expect(createDevice.statusCode).toBe(403);
+  });
+
+  it("a restaurant can create a device, generate a pairing code for it, and revoke it (positive control)", async () => {
+    const tenant = await signup("iso-device-ok");
+
+    const create = await app.inject({
+      method: "POST",
+      url: "/devices",
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+      payload: { label: "Front Counter", deviceType: "pos_terminal", branchId: tenant.branchId },
+    });
+    expect(create.statusCode).toBe(201);
+    const device = create.json<{ id: string; status: string }>();
+    expect(device.status).toBe("active");
+
+    const list = await app.inject({ method: "GET", url: "/devices", headers: { authorization: `Bearer ${tenant.accessToken}` } });
+    expect(list.json<Array<{ id: string }>>().map((d) => d.id)).toContain(device.id);
+
+    const pairingCode = await app.inject({
+      method: "POST",
+      url: `/devices/${device.id}/pairing-code`,
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+    });
+    expect(pairingCode.statusCode).toBe(201);
+    expect(pairingCode.json<{ pairingCode: string }>().pairingCode).toBeTruthy();
+
+    const revoke = await app.inject({
+      method: "POST",
+      url: `/devices/${device.id}/revoke`,
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+    });
+    expect(revoke.statusCode).toBe(201);
+    expect(revoke.json<{ status: string }>().status).toBe("revoked");
+  });
+
+  it("one restaurant's token can never see, pair, or revoke another restaurant's device", async () => {
+    const tenantA = await signup("iso-device-attack-a");
+    const tenantB = await signup("iso-device-attack-b");
+
+    const create = await app.inject({
+      method: "POST",
+      url: "/devices",
+      headers: { authorization: `Bearer ${tenantB.accessToken}` },
+      payload: { label: "B's Terminal", deviceType: "pos_terminal", branchId: tenantB.branchId },
+    });
+    const device = create.json<{ id: string }>();
+
+    const list = await app.inject({ method: "GET", url: "/devices", headers: { authorization: `Bearer ${tenantA.accessToken}` } });
+    expect(list.json<Array<{ id: string }>>().map((d) => d.id)).not.toContain(device.id);
+
+    const pairingCode = await app.inject({
+      method: "POST",
+      url: `/devices/${device.id}/pairing-code`,
+      headers: { authorization: `Bearer ${tenantA.accessToken}` },
+    });
+    expect(pairingCode.statusCode).toBe(404);
+
+    const revoke = await app.inject({
+      method: "POST",
+      url: `/devices/${device.id}/revoke`,
+      headers: { authorization: `Bearer ${tenantA.accessToken}` },
+    });
+    expect(revoke.statusCode).toBe(404);
   });
 
   it("an invalid or missing token is rejected by every protected route the same way", async () => {

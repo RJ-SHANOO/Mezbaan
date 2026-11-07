@@ -29,6 +29,15 @@ async function bootstrap(): Promise<void> {
     logger: new PinoNestLogger({ serviceName: SERVICE_NAME }),
   });
 
+  // The desktop app's webview calls this API directly (device pairing, and sync
+  // later) — same cross-origin situation as apps/web calling api-admin. Covers the
+  // Tauri dev server (vite on 1420) and the custom-scheme origins Tauri's webview
+  // uses in a packaged build (tauri:// on Windows/Linux, the equivalent on macOS).
+  app.enableCors({
+    origin: (process.env.CORS_ORIGIN ?? "http://localhost:1420,tauri://localhost,http://tauri.localhost").split(","),
+    methods: ["GET", "POST", "PATCH", "DELETE"],
+  });
+
   app.useGlobalFilters(new GlobalExceptionFilter(logger));
   // Order matters: PermissionGuard reads getTenantContext(), which TenantContextGuard
   // must have already populated for this request.

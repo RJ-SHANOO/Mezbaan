@@ -9,7 +9,8 @@
     "dev": "nest start --watch",
     "start": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "eslint src --max-warnings=0"
+    "lint": "eslint src --max-warnings=0",
+    "test": "vitest run"
   },
   "dependencies": {
     "@mezbaan/db": "workspace:*",
@@ -22,6 +23,7 @@
     "rxjs": "^7.8.2"
   },
   "devDependencies": {
-    "@nestjs/cli": "^12.0.11"
+    "@nestjs/cli": "^12.0.11",
+    "@types/pg": "^8.23.1"
   }
 }

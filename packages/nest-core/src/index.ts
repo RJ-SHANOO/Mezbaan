@@ -74,3 +74,17 @@ export {
 } from "./user-invitation.service.js";
 export { UserInvitationController } from "./user-invitation.controller.js";
 export { UserInvitationModule } from "./user-invitation.module.js";
+export {
+  DeviceService,
+  type DeviceRecord,
+  type CreateDeviceParams,
+  type GeneratePairingCodeParams,
+  type PairingCodeResult,
+  type RedeemPairingCodeResult,
+  type RevokeDeviceParams,
+} from "./device.service.js";
+export { DeviceAuthGuard, CurrentDevice, DEVICE_TOKEN_HEADER } from "./device-auth.guard.js";
+export { DevicesAdminController } from "./devices-admin.controller.js";
+export { DevicesAdminModule } from "./devices-admin.module.js";
+export { DevicesTerminalController } from "./devices-terminal.controller.js";
+export { DevicesTerminalModule } from "./devices-terminal.module.js";
