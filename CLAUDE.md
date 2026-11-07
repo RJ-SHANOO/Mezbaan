@@ -207,7 +207,7 @@ Ask the owner when a task reaches one of these. Until then, keep the value confi
 - [x] **P1-17** Build Branch CRUD and user invitation screens as the reference pattern for later modules. Lives in `apps/web` (React/Vite), not the Tauri desktop app — branch/staff management needs no offline support or hardware access, and doesn't need P1-18's Tauri shell to exist first (decided 2026-11-07; see the repo structure note in section 4).
 
 **Desktop foundation**
-- [ ] **P1-18** Create the Tauri 2 app with separate POS and kitchen windows, and error boundaries per module.
+- [x] **P1-18** Create the Tauri 2 app with separate POS and kitchen windows, and error boundaries per module.
 - [ ] **P1-19** Add encrypted SQLite in WAL mode with migrations and an integrity check at startup.
 - [ ] **P1-20** Add device pairing, token storage and remote device revocation.
 - [ ] **P1-21** Add signed auto-updates with staged rollout and automatic rollback.

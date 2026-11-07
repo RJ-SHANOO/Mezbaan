@@ -1,0 +1,14 @@
+@import "tailwindcss";
+
+/* Same brand palette as apps/web (duplicated, not shared via packages/ui yet — see
+   P1-18's own notes: extracting a shared design-tokens package is a deliberate call
+   for later, once there's a real need to keep more than just these colors in sync). */
+@theme {
+  --color-brand-purple: #423a8e;
+  --color-brand-purple-dark: #352f73;
+  --color-brand-teal: #00cccd;
+  --color-brand-amber: #ffc107;
+  --color-brand-red: #dc3545;
+  --color-brand-green: #198754;
+  --color-brand-blue: #0d6efd;
+}
