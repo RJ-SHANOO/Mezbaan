@@ -28,6 +28,20 @@ export {
 } from "./manager-pin.js";
 export { CreateBranchSchema, type CreateBranch, UpdateBranchSchema, type UpdateBranch, BranchSchema, type Branch } from "./branches.js";
 export {
+  DeviceTypeSchema,
+  type DeviceType,
+  CreateDeviceSchema,
+  type CreateDevice,
+  DeviceSchema,
+  type Device,
+  PairingCodeResponseSchema,
+  type PairingCodeResponse,
+  RedeemPairingCodeSchema,
+  type RedeemPairingCode,
+  DeviceTokenResponseSchema,
+  type DeviceTokenResponse,
+} from "./device.js";
+export {
   InvitableRoleKeySchema,
   type InvitableRoleKey,
   InviteUserSchema,
