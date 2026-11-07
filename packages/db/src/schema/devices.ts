@@ -20,6 +20,11 @@ export const devices = pgTable(
     // NULL until paired (P1-20 issues the token and sets this). Never store the raw
     // token — only its hash, same as passwordHash on users (rule 20).
     tokenHash: text("token_hash"),
+    // Set when an admin generates a one-time pairing code (P1-20); cleared the moment
+    // it's redeemed. Same opaque-token/hash-only pattern as tokenHash — the raw code
+    // is never persisted, and it's short-lived (see DeviceService's pairing code TTL).
+    pairingCodeHash: text("pairing_code_hash"),
+    pairingCodeExpiresAt: timestamp("pairing_code_expires_at", { withTimezone: true }),
     status: text("status", { enum: ["active", "revoked"] })
       .notNull()
       .default("active"),
