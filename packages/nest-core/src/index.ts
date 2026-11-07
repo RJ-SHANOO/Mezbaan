@@ -88,3 +88,6 @@ export { DevicesAdminController } from "./devices-admin.controller.js";
 export { DevicesAdminModule } from "./devices-admin.module.js";
 export { DevicesTerminalController } from "./devices-terminal.controller.js";
 export { DevicesTerminalModule } from "./devices-terminal.module.js";
+export { ReleasesService, type CheckForUpdateParams } from "./releases.service.js";
+export { ReleasesController } from "./releases.controller.js";
+export { ReleasesModule } from "./releases.module.js";
