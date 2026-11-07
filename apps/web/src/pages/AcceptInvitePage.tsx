@@ -1,5 +1,6 @@
 import { useState, type FormEvent, type ReactElement } from "react";
 import { apiRequest, ApiError } from "../lib/api-client.js";
+import { CheckCircleIcon } from "../components/icons.js";
 import { navigate, useRoute } from "../lib/router.js";
 
 export function AcceptInvitePage(): ReactElement {
@@ -27,18 +28,21 @@ export function AcceptInvitePage(): ReactElement {
 
   if (!inviteToken) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
-        <p className="text-sm text-red-600">This invitation link is missing its token.</p>
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-[#efeafb] via-slate-50 to-[#e4fbfb] px-4">
+        <p className="text-sm text-brand-red">This invitation link is missing its token.</p>
       </div>
     );
   }
 
   if (accepted) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
-        <div className="w-full max-w-sm space-y-4 rounded-lg border border-slate-200 bg-white p-6 text-center shadow-sm">
-          <p className="text-slate-900">Your account is ready.</p>
-          <button type="button" onClick={() => navigate("/login")} className="text-sm font-medium text-slate-700 underline">
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-[#efeafb] via-slate-50 to-[#e4fbfb] px-4">
+        <div className="w-full max-w-sm space-y-4 rounded-xl border border-slate-100 bg-white p-7 text-center shadow-sm">
+          <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-brand-green/10 text-brand-green">
+            <CheckCircleIcon className="h-6 w-6" />
+          </span>
+          <p className="font-medium text-slate-900">Your account is ready.</p>
+          <button type="button" onClick={() => navigate("/login")} className="text-sm font-medium text-brand-purple hover:underline">
             Go to sign in
           </button>
         </div>
@@ -47,9 +51,13 @@ export function AcceptInvitePage(): ReactElement {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
-      <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-4 rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-        <h1 className="text-lg font-semibold text-slate-900">Set up your account</h1>
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-[#efeafb] via-slate-50 to-[#e4fbfb] px-4">
+      <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-4 rounded-xl border border-slate-100 bg-white p-7 shadow-sm">
+        <div className="mb-2 flex items-center gap-2">
+          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-purple text-base font-bold text-white">M</span>
+          <span className="text-lg font-bold text-brand-purple">Mezbaan</span>
+        </div>
+        <h1 className="text-sm font-medium text-slate-500">Set up your account</h1>
 
         <label className="block space-y-1">
           <span className="text-sm font-medium text-slate-700">Your name</span>
@@ -57,7 +65,7 @@ export function AcceptInvitePage(): ReactElement {
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
             required
-            className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-purple focus:outline-none focus:ring-1 focus:ring-brand-purple"
           />
         </label>
 
@@ -69,16 +77,16 @@ export function AcceptInvitePage(): ReactElement {
             onChange={(e) => setPassword(e.target.value)}
             required
             minLength={8}
-            className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-purple focus:outline-none focus:ring-1 focus:ring-brand-purple"
           />
         </label>
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {error && <p className="text-sm text-brand-red">{error}</p>}
 
         <button
           type="submit"
           disabled={isSubmitting}
-          className="w-full rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+          className="w-full rounded-lg bg-brand-purple px-3 py-2.5 text-sm font-medium text-white transition hover:bg-brand-purple-dark disabled:opacity-50"
         >
           {isSubmitting ? "Creating account…" : "Create account"}
         </button>

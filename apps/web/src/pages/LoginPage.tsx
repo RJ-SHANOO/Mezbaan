@@ -31,9 +31,13 @@ export function LoginPage(): ReactElement {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
-      <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-4 rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-        <h1 className="text-lg font-semibold text-slate-900">Sign in to Mezbaan</h1>
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-[#efeafb] via-slate-50 to-[#e4fbfb] px-4">
+      <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-4 rounded-xl border border-slate-100 bg-white p-7 shadow-sm">
+        <div className="mb-2 flex items-center gap-2">
+          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-purple text-base font-bold text-white">M</span>
+          <span className="text-lg font-bold text-brand-purple">Mezbaan</span>
+        </div>
+        <h1 className="text-sm font-medium text-slate-500">Sign in to your restaurant</h1>
 
         <Field label="Restaurant URL">
           <input
@@ -41,7 +45,7 @@ export function LoginPage(): ReactElement {
             onChange={(e) => setRestaurantSlug(e.target.value)}
             placeholder="your-restaurant"
             required
-            className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-purple focus:outline-none focus:ring-1 focus:ring-brand-purple"
           />
         </Field>
 
@@ -51,7 +55,7 @@ export function LoginPage(): ReactElement {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
-            className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-purple focus:outline-none focus:ring-1 focus:ring-brand-purple"
           />
         </Field>
 
@@ -61,16 +65,16 @@ export function LoginPage(): ReactElement {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
-            className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-purple focus:outline-none focus:ring-1 focus:ring-brand-purple"
           />
         </Field>
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {error && <p className="text-sm text-brand-red">{error}</p>}
 
         <button
           type="submit"
           disabled={isSubmitting}
-          className="w-full rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+          className="w-full rounded-lg bg-brand-purple px-3 py-2.5 text-sm font-medium text-white transition hover:bg-brand-purple-dark disabled:opacity-50"
         >
           {isSubmitting ? "Signing in…" : "Sign in"}
         </button>

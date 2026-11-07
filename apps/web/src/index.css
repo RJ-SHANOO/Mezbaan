@@ -1,1 +1,14 @@
 @import "tailwindcss";
+
+/* Brand palette, taken directly from the reference design (Breeze admin template):
+   https://... primary purple + teal, with amber/red/green/blue as the supporting
+   set used for stat cards and status badges. */
+@theme {
+  --color-brand-purple: #423a8e;
+  --color-brand-purple-dark: #352f73;
+  --color-brand-teal: #00cccd;
+  --color-brand-amber: #ffc107;
+  --color-brand-red: #dc3545;
+  --color-brand-green: #198754;
+  --color-brand-blue: #0d6efd;
+}
