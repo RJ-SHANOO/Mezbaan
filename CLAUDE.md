@@ -209,7 +209,7 @@ Ask the owner when a task reaches one of these. Until then, keep the value confi
 **Desktop foundation**
 - [x] **P1-18** Create the Tauri 2 app with separate POS and kitchen windows, and error boundaries per module.
 - [x] **P1-19** Add encrypted SQLite in WAL mode with migrations and an integrity check at startup.
-- [ ] **P1-20** Add device pairing, token storage and remote device revocation.
+- [x] **P1-20** Add device pairing, token storage and remote device revocation.
 - [ ] **P1-21** Add signed auto-updates with staged rollout and automatic rollback.
 - [ ] **P1-22** Add a watchdog that restarts the app and restores in-progress work.
 - [ ] **P1-23** Add remote per-module feature flags per restaurant.
