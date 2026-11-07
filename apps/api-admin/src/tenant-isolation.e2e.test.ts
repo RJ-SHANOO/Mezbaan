@@ -138,6 +138,120 @@ describe("tenant isolation — api-admin HTTP endpoints", () => {
     expect(response.statusCode).toBe(409);
   });
 
+  it("a restaurant can create, list, and update its own branch (positive control)", async () => {
+    const tenant = await signup("iso-branch-ok");
+
+    const create = await app.inject({
+      method: "POST",
+      url: "/branches",
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+      payload: { name: "Second Branch", timezone: "Asia/Karachi" },
+    });
+    expect(create.statusCode).toBe(201);
+    const branch = create.json<{ id: string }>();
+
+    const list = await app.inject({ method: "GET", url: "/branches", headers: { authorization: `Bearer ${tenant.accessToken}` } });
+    expect(list.statusCode).toBe(200);
+    expect(list.json<Array<{ id: string }>>().map((b) => b.id)).toContain(branch.id);
+
+    const update = await app.inject({
+      method: "PATCH",
+      url: `/branches/${branch.id}`,
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+      payload: { status: "inactive" },
+    });
+    expect(update.statusCode).toBe(200);
+    expect(update.json<{ status: string }>().status).toBe("inactive");
+  });
+
+  it("one restaurant's token can never see or update another restaurant's branch", async () => {
+    const tenantA = await signup("iso-branch-attack-a");
+    const tenantB = await signup("iso-branch-attack-b");
+
+    const create = await app.inject({
+      method: "POST",
+      url: "/branches",
+      headers: { authorization: `Bearer ${tenantB.accessToken}` },
+      payload: { name: "B's Branch", timezone: "Asia/Karachi" },
+    });
+    const branch = create.json<{ id: string }>();
+
+    const list = await app.inject({ method: "GET", url: "/branches", headers: { authorization: `Bearer ${tenantA.accessToken}` } });
+    expect(list.json<Array<{ id: string }>>().map((b) => b.id)).not.toContain(branch.id);
+
+    const update = await app.inject({
+      method: "PATCH",
+      url: `/branches/${branch.id}`,
+      headers: { authorization: `Bearer ${tenantA.accessToken}` },
+      payload: { name: "Hijacked" },
+    });
+    expect(update.statusCode).toBe(404);
+  });
+
+  it("a restaurant can invite a user, and the invitee can accept and then log in (positive control)", async () => {
+    const tenant = await signup("iso-invite-ok");
+    const email = `iso-invite-ok-${randomUUID()}@example.test`;
+
+    const invite = await app.inject({
+      method: "POST",
+      url: "/users/invite",
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+      payload: { email, roleKey: "cashier" },
+    });
+    expect(invite.statusCode).toBe(201);
+    const { inviteToken } = invite.json<{ inviteToken: string }>();
+
+    const accept = await app.inject({
+      method: "POST",
+      url: "/users/invite/accept",
+      payload: { inviteToken, displayName: "New Cashier", password: "a long enough password" },
+    });
+    expect(accept.statusCode).toBe(201);
+
+    const login = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { restaurantSlug: tenant.slug, email, password: "a long enough password" },
+    });
+    expect(login.statusCode).toBe(201);
+  });
+
+  it("an invited cashier (no settings.manage) can't manage branches or invite other staff", async () => {
+    const tenant = await signup("iso-invite-permission");
+    const email = `iso-invite-permission-${randomUUID()}@example.test`;
+
+    const invite = await app.inject({
+      method: "POST",
+      url: "/users/invite",
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+      payload: { email, roleKey: "cashier" },
+    });
+    const { inviteToken } = invite.json<{ inviteToken: string }>();
+    await app.inject({
+      method: "POST",
+      url: "/users/invite/accept",
+      payload: { inviteToken, displayName: "Cashier", password: "a long enough password" },
+    });
+    const login = await app.inject({ method: "POST", url: "/auth/login", payload: { restaurantSlug: tenant.slug, email, password: "a long enough password" } });
+    const { accessToken: cashierToken } = login.json<{ accessToken: string }>();
+
+    const createBranch = await app.inject({
+      method: "POST",
+      url: "/branches",
+      headers: { authorization: `Bearer ${cashierToken}` },
+      payload: { name: "Cashier's Branch", timezone: "Asia/Karachi" },
+    });
+    expect(createBranch.statusCode).toBe(403);
+
+    const inviteSomeoneElse = await app.inject({
+      method: "POST",
+      url: "/users/invite",
+      headers: { authorization: `Bearer ${cashierToken}` },
+      payload: { email: `someone-else-${randomUUID()}@example.test`, roleKey: "cashier" },
+    });
+    expect(inviteSomeoneElse.statusCode).toBe(403);
+  });
+
   it("an invalid or missing token is rejected by every protected route the same way", async () => {
     const noToken = await app.inject({ method: "POST", url: "/manager-pin", payload: { pin: "1234" } });
     expect(noToken.statusCode).toBe(401);

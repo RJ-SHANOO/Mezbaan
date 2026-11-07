@@ -4,6 +4,7 @@ import { schema, withTenant, type Database } from "@mezbaan/db";
 import { AuditLogService } from "./audit-log.service.js";
 import { DATABASE } from "./db.module.js";
 import { hashPassword } from "./password.js";
+import { isUniqueViolation } from "./pg-error.js";
 
 export const ONBOARDING_OPTIONS = Symbol("ONBOARDING_OPTIONS");
 
@@ -33,24 +34,6 @@ export interface SignupResult {
 
 const SLUG_TAKEN = "That restaurant URL is already taken";
 const DEFAULT_COMMISSION_RATE_BASIS_POINTS = 500; // 5%
-
-const POSTGRES_UNIQUE_VIOLATION = "23505";
-
-function pgErrorCode(error: unknown): unknown {
-  if (typeof error !== "object" || error === null) return undefined;
-  return (error as { code?: unknown }).code;
-}
-
-/** drizzle-orm wraps the raw `pg` error in a DrizzleQueryError whose own `.code` is
- * undefined — the Postgres error code lives one level down, on `.cause`. Checking
- * only the top-level error (an earlier version of this function did) means this
- * never matches, and every unique-violation surfaces as an unhandled 500 instead of
- * the intended 409 — caught by apps/api-admin's tenant-isolation e2e suite (P1-16),
- * not by this file's own unit test, which only asserted `.rejects.toThrow()` and so
- * couldn't tell a ConflictException apart from a crash. */
-function isUniqueViolation(error: unknown): boolean {
-  return pgErrorCode(error) === POSTGRES_UNIQUE_VIOLATION || pgErrorCode((error as { cause?: unknown })?.cause) === POSTGRES_UNIQUE_VIOLATION;
-}
 
 /**
  * Restaurant signup (P1-15): creates the tenant root, its first branch, and an Owner

@@ -54,3 +54,23 @@ export {
 } from "./onboarding.service.js";
 export { OnboardingController } from "./onboarding.controller.js";
 export { OnboardingModule } from "./onboarding.module.js";
+export { isUniqueViolation } from "./pg-error.js";
+export {
+  BranchesService,
+  type BranchRecord,
+  type CreateBranchParams,
+  type UpdateBranchParams,
+} from "./branches.service.js";
+export { BranchesController } from "./branches.controller.js";
+export { BranchesModule } from "./branches.module.js";
+export {
+  UserInvitationService,
+  USER_INVITATION_OPTIONS,
+  type UserInvitationServiceOptions,
+  type InviteUserParams,
+  type AcceptInviteParams,
+  type StaffUser,
+  type PendingInvitation as PendingInvitationRecord,
+} from "./user-invitation.service.js";
+export { UserInvitationController } from "./user-invitation.controller.js";
+export { UserInvitationModule } from "./user-invitation.module.js";
