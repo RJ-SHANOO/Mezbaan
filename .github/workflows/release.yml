@@ -1,0 +1,103 @@
+name: Release Desktop
+
+# Tag push only (e.g. `git tag desktop-v0.1.1 && git push origin desktop-v0.1.1`) —
+# bump apps/desktop/src-tauri/tauri.conf.json's version first, tag to match.
+on:
+  push:
+    tags:
+      - "desktop-v*"
+
+jobs:
+  build-and-publish:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rust-target: x86_64-pc-windows-msvc
+            platform: windows-x86_64
+          - os: macos-latest
+            rust-target: aarch64-apple-darwin
+            platform: darwin-aarch64
+          - os: macos-latest
+            rust-target: x86_64-apple-darwin
+            platform: darwin-x86_64
+          - os: ubuntu-22.04
+            rust-target: x86_64-unknown-linux-gnu
+            platform: linux-x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-target }}
+
+      - name: Install Tauri Linux build dependencies
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libxdo-dev libssl-dev
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The desktop app imports @mezbaan/contracts directly (PairingGate, device
+      # token response parsing) — needs its dist/ built before `tauri build` runs.
+      - name: Build workspace dependencies
+        run: pnpm --filter @mezbaan/contracts build
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: apps/desktop
+          tagName: ${{ github.ref_name }}
+          releaseName: "Mezbaan Desktop ${{ github.ref_name }}"
+          releaseDraft: true
+          args: --target ${{ matrix.rust-target }}
+
+      # Registers the just-published build with api-pos's staged-rollout table
+      # (P1-21) at a conservative 10% so it isn't offered to every terminal at
+      # once. Needs a real production DATABASE_URL secret, which doesn't exist
+      # yet — no deployment target has been chosen (CLAUDE.md section 6). Until
+      # then this step is skipped, not failed, and a release manager runs
+      # `pnpm --filter @mezbaan/db run release:register -- --platform ... --version
+      # ... --url ... --signature ... --rollout 10` by hand against whatever
+      # environment is actually live.
+      - name: Register release for staged rollout
+        if: ${{ secrets.PRODUCTION_DATABASE_URL != '' }}
+        shell: bash
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          sig_file=$(find apps/desktop/src-tauri/target/${{ matrix.rust-target }}/release/bundle -name "*.sig" | head -n1)
+          if [ -z "$sig_file" ]; then
+            echo "No updater .sig artifact found under target/${{ matrix.rust-target }}/release/bundle — did bundle.createUpdaterArtifacts stay enabled?" >&2
+            exit 1
+          fi
+          artifact_name=$(basename "${sig_file%.sig}")
+          signature=$(cat "$sig_file")
+          version="${GITHUB_REF_NAME#desktop-v}"
+          download_url="https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${artifact_name}"
+
+          corepack enable
+          pnpm --filter @mezbaan/db build
+          pnpm --filter @mezbaan/db run release:register -- \
+            --platform "${{ matrix.platform }}" \
+            --version "$version" \
+            --url "$download_url" \
+            --signature "$signature" \
+            --rollout 10
