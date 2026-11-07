@@ -41,6 +41,7 @@ export {
   DeviceTokenResponseSchema,
   type DeviceTokenResponse,
 } from "./device.js";
+export { UpdateManifestSchema, type UpdateManifest } from "./release.js";
 export {
   InvitableRoleKeySchema,
   type InvitableRoleKey,
