@@ -26,3 +26,5 @@ tauri-plugin-log = "2"
 rusqlite = { version = "0.41.1", features = ["bundled-sqlcipher-vendored-openssl"] }
 rand = "0.8"
 keyring = "4.2.0"
+tauri-plugin-updater = "2.14.1"
+tauri-plugin-process = "2.4.0"
