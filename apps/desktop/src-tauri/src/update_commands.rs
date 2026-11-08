@@ -1,7 +1,7 @@
 use crate::db::DbState;
 use crate::update_health::{self, BootStatus};
 use std::sync::Mutex;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, State};
 
 /// Tauri-managed handle to this boot's health decision, computed once at startup
 /// (see lib.rs's setup hook) and read by the frontend's update-checker to decide
