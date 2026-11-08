@@ -2,16 +2,27 @@ name: Release Desktop
 
 # Tag push only (e.g. `git tag desktop-v0.1.1 && git push origin desktop-v0.1.1`) —
 # bump apps/desktop/src-tauri/tauri.conf.json's version first, tag to match.
+#
+# IMPORTANT: push `main` itself to origin before pushing the tag, not just the
+# tag. GITHUB_TOKEN can create a release for a brand-new tag fine, but
+# tauri-action's createRelease call passes target_commitish explicitly as the
+# triggering commit SHA — and GITHUB_TOKEN gets a flat 403 ("Resource not
+# accessible by integration") if that commit isn't reachable from a branch
+# that actually exists on the remote. This has nothing to do with the
+# `permissions:` block below (verified directly against the REST API: a fresh
+# tag_name with no explicit target_commitish succeeds with contents=write; the
+# exact same call shape tauri-action uses, with an existing tag_name whose
+# commit is remote-branch-reachable, also succeeds — only an *unreachable*
+# commit 403s). Confirmed by reproducing tauri-action's exact API call
+# directly via curl, isolating target_commitish/branch-reachability as the
+# actual variable — see commit history on this file for the debugging trail.
 on:
   push:
     tags:
       - "desktop-v*"
 
-# The repo's default GITHUB_TOKEN permissions are read-only — tauri-action needs
-# contents:write to create the (draft) GitHub Release and upload bundle/updater
-# assets to it, or it fails with "Resource not accessible by integration" after
-# doing a full platform build. A job-level `permissions:` block alone didn't fix
-# this in practice; workflow-level is the documented/canonical place for it.
+# tauri-action needs contents:write to create the (draft) GitHub Release and
+# upload bundle/updater assets to it.
 permissions:
   contents: write
 
@@ -36,23 +47,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-
-      # TEMP DEBUG (P1-21), round 2: a brand-new tag_name with no explicit
-      # target_commitish worked fine (201, contents=write accepted) — so the
-      # token/permission itself is NOT the problem. tauri-action's actual call
-      # (apps/desktop/node_modules/.../dist/index.js) instead targets a tag
-      # that *already exists* (the one we pushed ourselves) and passes
-      # target_commitish explicitly as context.sha. Reproducing that exact
-      # shape here to isolate which part of it GitHub actually rejects.
-      - name: TEMP DEBUG - probe GITHUB_TOKEN release-creation permission
-        if: matrix.os == 'ubuntu-22.04'
-        shell: bash
-        run: |
-          curl -s -i -X POST \
-            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/${{ github.repository }}/releases \
-            -d "{\"tag_name\":\"${{ github.ref_name }}\",\"target_commitish\":\"${{ github.sha }}\",\"draft\":true,\"name\":\"DEBUG delete me\"}" || true
 
       - name: Enable corepack
         run: corepack enable
