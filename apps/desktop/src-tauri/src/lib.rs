@@ -8,6 +8,8 @@ mod pending_work_commands;
 mod secure_store;
 mod snapshot_sync;
 mod sync_client;
+mod sync_status;
+mod sync_status_commands;
 mod update_commands;
 mod update_health;
 
@@ -38,6 +40,7 @@ pub fn run() {
             pending_work_commands::save_pending_work,
             pending_work_commands::load_pending_work,
             pending_work_commands::clear_pending_work,
+            sync_status_commands::get_sync_status,
             mark_clean_shutdown,
         ])
         .setup(|app| {

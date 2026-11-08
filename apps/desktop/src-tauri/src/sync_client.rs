@@ -12,6 +12,7 @@
 //! `ReqwestSyncTransport` is the real one, and tests drive the retry/batching logic
 //! against an in-memory mock instead of a live server.
 use crate::operation_log::{self, LoggedOperation};
+use crate::sync_status;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -170,7 +171,14 @@ fn send_with_retry<T: SyncTransport>(
 /// retries, leaving it and everything after it unsynced for the next cycle — never
 /// sends a later batch out of order ahead of one that hasn't actually gone through.
 pub fn run_sync_cycle<T: SyncTransport>(conn: &mut Connection, transport: &T) -> Result<SyncCycleSummary, SyncError> {
-    run_sync_cycle_with_sleep(conn, transport, std::thread::sleep)
+    let result = run_sync_cycle_with_sleep(conn, transport, std::thread::sleep);
+    // P1-29's sync status indicator: record whether this cycle actually reached the
+    // server, independent of the summary itself. Best-effort — a failure to record
+    // status must never turn an otherwise-successful sync into a reported failure.
+    if let Err(err) = sync_status::record_sync_attempt(conn, result.is_ok()) {
+        log::error!("sync: failed to record sync status: {err}");
+    }
+    result
 }
 
 fn run_sync_cycle_with_sleep<T: SyncTransport>(

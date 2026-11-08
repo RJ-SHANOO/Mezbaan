@@ -119,6 +119,13 @@ pub fn list_unsynced(conn: &Connection) -> Result<Vec<LoggedOperation>, Operatio
     Ok(rows)
 }
 
+/// The "pending count" half of P1-29's sync status indicator — a plain COUNT
+/// rather than `list_unsynced(conn).len()`, so checking it doesn't load every
+/// unsynced row's full payload just to discard it.
+pub fn count_unsynced(conn: &Connection) -> Result<i64, OperationLogError> {
+    Ok(conn.query_row("SELECT count(*) FROM operation_log WHERE synced_at IS NULL", [], |row| row.get(0))?)
+}
+
 /// Called by the sync client (P1-25) once the server has acknowledged an operation.
 /// Idempotent: marking an already-synced or nonexistent id is a silent no-op, since a
 /// retried sync cycle (crash, timeout after the server actually committed) must not
@@ -245,6 +252,21 @@ mod tests {
 
         let logged = list_unsynced(&conn).unwrap();
         assert_eq!(logged.iter().map(|o| o.idempotency_key.as_str()).collect::<Vec<_>>(), vec!["widget-a", "widget-b"]);
+    }
+
+    #[test]
+    fn count_unsynced_matches_list_unsynced_and_drops_as_rows_sync() {
+        let mut conn = test_conn();
+        assert_eq!(count_unsynced(&conn).unwrap(), 0);
+
+        let a = op("widget-a");
+        let a_id = a.id.clone();
+        record_once::<_, WidgetError, _>(&mut conn, a, |_| Ok(())).unwrap();
+        record_once::<_, WidgetError, _>(&mut conn, op("widget-b"), |_| Ok(())).unwrap();
+        assert_eq!(count_unsynced(&conn).unwrap(), 2);
+
+        mark_synced(&conn, &a_id).unwrap();
+        assert_eq!(count_unsynced(&conn).unwrap(), 1);
     }
 
     #[test]
