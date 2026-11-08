@@ -84,10 +84,18 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: apps/desktop/src-tauri
+          workspaces: |
+            apps/desktop/src-tauri
+            apps/desktop/watchdog
 
       - name: Test desktop (Rust)
         run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+      # Standalone crate (P1-22), not a [[bin]] of src-tauri's own package — see
+      # apps/desktop/watchdog/Cargo.toml for why. Has its own Cargo.lock/target,
+      # so it needs its own cargo test invocation to actually get covered in CI.
+      - name: Test watchdog (Rust)
+        run: cargo test --manifest-path apps/desktop/watchdog/Cargo.toml
 
   migrations:
     name: Check migrations

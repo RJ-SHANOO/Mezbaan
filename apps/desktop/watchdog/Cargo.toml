@@ -1,0 +1,21 @@
+[package]
+name = "mezbaan-watchdog"
+version = "0.1.0"
+description = "Crash-recovery watchdog for the Mezbaan desktop app (P1-22)"
+edition = "2024"
+rust-version = "1.90"
+
+# Deliberately its own package rather than a second [[bin]] under
+# apps/desktop/src-tauri's Cargo.toml: Tauri's Windows/WiX bundler auto-discovers
+# and bundles every [[bin]] target of the app's own package, so a same-package
+# "mezbaan-watchdog" bin collided with the externalBin sidecar copy of the exact
+# same name — two WiX Components both claiming to install
+# "mezbaan-watchdog.exe", which `light.exe` rejects with ICE30 ("breaks component
+# reference counting"). Keeping this as an unrelated package with its own target/
+# means cargo never produces that extra binary next to app.exe in the first place.
+[[bin]]
+name = "mezbaan-watchdog"
+path = "src/main.rs"
+
+[dependencies]
+sysinfo = { version = "0.38.4", default-features = false, features = ["system"] }

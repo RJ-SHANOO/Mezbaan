@@ -56,6 +56,37 @@ jobs:
       - name: Build workspace dependencies
         run: pnpm --filter @mezbaan/contracts build
 
+      # tauri-build's build.rs validates every bundle.externalBin path exists on
+      # disk *before* the main "app" binary compiles (see
+      # apps/desktop/src-tauri/binaries/PLACEHOLDER.md) — the committed files there
+      # are either a stale manually-built Windows binary or empty placeholders, so
+      # each platform must compile and drop in its own real sidecar before the
+      # tauri-action step below runs `tauri build`. Built from the standalone
+      # apps/desktop/watchdog crate, not a second [[bin]] of the app's own
+      # package — see that crate's Cargo.toml for why (WiX ICE30 otherwise).
+      - name: Build the watchdog sidecar for this platform
+        shell: bash
+        run: |
+          cargo build --release \
+            --target ${{ matrix.rust-target }} \
+            --manifest-path apps/desktop/watchdog/Cargo.toml
+
+      - name: Install the watchdog sidecar binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          ext=""
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            ext=".exe"
+          fi
+          src="apps/desktop/watchdog/target/${{ matrix.rust-target }}/release/mezbaan-watchdog${ext}"
+          dest="apps/desktop/src-tauri/binaries/mezbaan-watchdog-${{ matrix.rust-target }}${ext}"
+          if [ ! -f "$src" ]; then
+            echo "Expected watchdog binary at $src but the build didn't produce it" >&2
+            exit 1
+          fi
+          cp "$src" "$dest"
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
