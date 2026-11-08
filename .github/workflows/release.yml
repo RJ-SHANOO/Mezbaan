@@ -108,10 +108,16 @@ jobs:
       # ... --url ... --signature ... --rollout 10` by hand against whatever
       # environment is actually live.
       - name: Register release for staged rollout
-        if: ${{ secrets.PRODUCTION_DATABASE_URL != '' }}
+        # `secrets` isn't an allowed context in step `if:` conditions (only env,
+        # github, inputs, job, matrix, needs, runner, steps, strategy, vars are) —
+        # route it through env first. Without this the whole workflow file fails
+        # GitHub's schema validation and silently never schedules a single job,
+        # on every push, not just ones that would reach this step.
+        if: ${{ env.HAS_PRODUCTION_DB == 'true' }}
         shell: bash
         env:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          HAS_PRODUCTION_DB: ${{ secrets.PRODUCTION_DATABASE_URL != '' }}
         run: |
           set -euo pipefail
           sig_file=$(find apps/desktop/src-tauri/target/${{ matrix.rust-target }}/release/bundle -name "*.sig" | head -n1)
