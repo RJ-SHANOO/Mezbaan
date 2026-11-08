@@ -93,6 +93,36 @@ describe("create()", () => {
     expect(listed.map((d) => d.id)).toContain(device.id);
     expect(await auditActions(tenant.restaurantId)).toContain("device.created");
   });
+
+  it("assigns sequential terminal numbers per branch, starting at 1 (P1-28)", async () => {
+    const tenant = await createTenant("device-number-seq");
+    const first = await createDevice(tenant, "Terminal 1");
+    const second = await createDevice(tenant, "Terminal 2");
+
+    expect(first.terminalNumber).toBe(1);
+    expect(second.terminalNumber).toBe(2);
+  });
+
+  it("numbers each branch's devices independently, both starting at 1", async () => {
+    const tenant = await createTenant("device-number-iso");
+    const otherBranchRows = await withTenant(db, { restaurantId: tenant.restaurantId }, (tx) =>
+      tx.insert(schema.branches).values({ restaurantId: tenant.restaurantId, name: "Second Branch", timezone: "Asia/Karachi" }).returning({ id: schema.branches.id }),
+    );
+    const otherBranchId = otherBranchRows[0]?.id;
+    if (!otherBranchId) throw new Error("fixture: branch insert returned no row");
+
+    const deviceInFirstBranch = await createDevice(tenant, "Main Branch Terminal");
+    const deviceInSecondBranch = await service.create({
+      restaurantId: tenant.restaurantId,
+      actorUserId: tenant.ownerUserId,
+      branchId: otherBranchId,
+      label: "Second Branch Terminal",
+      deviceType: "pos_terminal",
+    });
+
+    expect(deviceInFirstBranch.terminalNumber).toBe(1);
+    expect(deviceInSecondBranch.terminalNumber).toBe(1);
+  });
 });
 
 describe("pairing and token validation", () => {

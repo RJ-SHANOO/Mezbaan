@@ -18,6 +18,9 @@ export const BranchSchema = z.object({
   name: z.string(),
   timezone: z.string(),
   status: z.enum(["active", "inactive"]),
+  // Sequential per restaurant, assigned at creation — the "B1" half of a P1-28
+  // document number.
+  branchNumber: z.number().int().positive(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

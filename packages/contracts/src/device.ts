@@ -16,6 +16,9 @@ export const DeviceSchema = z.object({
   label: z.string(),
   deviceType: DeviceTypeSchema,
   status: z.enum(["active", "revoked"]),
+  // Sequential per branch, assigned at creation — the "T2" half of a P1-28
+  // document number.
+  terminalNumber: z.number().int().positive(),
   lastSeenAt: z.string().nullable(),
   createdAt: z.string(),
 });

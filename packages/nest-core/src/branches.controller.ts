@@ -8,12 +8,21 @@ import { parseOrBadRequest } from "./validation.js";
 
 const BranchIdParamSchema = z.object({ id: z.string().uuid() });
 
-function toBranchResponse(branch: { id: string; name: string; timezone: string; status: "active" | "inactive"; createdAt: Date; updatedAt: Date }): Branch {
+function toBranchResponse(branch: {
+  id: string;
+  name: string;
+  timezone: string;
+  status: "active" | "inactive";
+  branchNumber: number;
+  createdAt: Date;
+  updatedAt: Date;
+}): Branch {
   return {
     id: branch.id,
     name: branch.name,
     timezone: branch.timezone,
     status: branch.status,
+    branchNumber: branch.branchNumber,
     createdAt: branch.createdAt.toISOString(),
     updatedAt: branch.updatedAt.toISOString(),
   };

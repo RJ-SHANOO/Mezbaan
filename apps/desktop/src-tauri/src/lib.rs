@@ -1,5 +1,6 @@
 mod db;
 mod device_token;
+mod document_number;
 mod manager_pin_offline;
 mod operation_log;
 mod pending_work;

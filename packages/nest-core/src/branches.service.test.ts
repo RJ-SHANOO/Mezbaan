@@ -68,6 +68,36 @@ describe("BranchesService", () => {
     expect(auditRows.some((row) => row.action === "branch.created" && row.targetId === branch.id)).toBe(true);
   });
 
+  it("assigns sequential branch numbers per restaurant, starting at 1 (P1-28)", async () => {
+    const tenant = await createRestaurant("branch-number-seq");
+    const first = await service.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, name: "First", timezone: "Asia/Karachi" });
+    const second = await service.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, name: "Second", timezone: "Asia/Karachi" });
+
+    expect(first.branchNumber).toBe(1);
+    expect(second.branchNumber).toBe(2);
+  });
+
+  it("numbers each restaurant's branches independently, both starting at 1", async () => {
+    const tenantA = await createRestaurant("branch-number-iso-a");
+    const tenantB = await createRestaurant("branch-number-iso-b");
+    const branchA = await service.create({ restaurantId: tenantA.restaurantId, actorUserId: tenantA.ownerUserId, name: "A", timezone: "Asia/Karachi" });
+    const branchB = await service.create({ restaurantId: tenantB.restaurantId, actorUserId: tenantB.ownerUserId, name: "B", timezone: "Asia/Karachi" });
+
+    expect(branchA.branchNumber).toBe(1);
+    expect(branchB.branchNumber).toBe(1);
+  });
+
+  it("the restaurant+branch_number UNIQUE index actually rejects a duplicate — the real rule-10 guarantee, not just the trigger's usual behavior", async () => {
+    const tenant = await createRestaurant("branch-number-unique");
+    const first = await service.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, name: "First", timezone: "Asia/Karachi" });
+
+    await expect(
+      withTenant(db, { restaurantId: tenant.restaurantId }, (tx) =>
+        tx.insert(schema.branches).values({ restaurantId: tenant.restaurantId, name: "Duplicate", timezone: "Asia/Karachi", branchNumber: first.branchNumber }),
+      ),
+    ).rejects.toThrow();
+  });
+
   it("updates a branch's status and audits it", async () => {
     const tenant = await createRestaurant("branch-update");
     const branch = await service.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, name: "Main", timezone: "Asia/Karachi" });

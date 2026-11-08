@@ -11,6 +11,7 @@ function toDeviceResponse(device: DeviceRecord): Device {
     label: device.label,
     deviceType: device.deviceType,
     status: device.status,
+    terminalNumber: device.terminalNumber,
     lastSeenAt: device.lastSeenAt ? device.lastSeenAt.toISOString() : null,
     createdAt: device.createdAt.toISOString(),
   });

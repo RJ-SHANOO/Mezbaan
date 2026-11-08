@@ -9,6 +9,7 @@ export interface BranchRecord {
   name: string;
   timezone: string;
   status: "active" | "inactive";
+  branchNumber: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -50,6 +51,11 @@ export class BranchesService {
 
   async create(params: CreateBranchParams): Promise<BranchRecord> {
     return withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
+      // branch_number (P1-28's "B1" prefix) is assigned automatically by a DB
+      // trigger (see the migration) — sequential per restaurant, with
+      // UNIQUE(restaurant_id, branch_number) as the real guarantee against a
+      // genuine concurrent-create race (rule 10 needs this to actually never
+      // collide, not just usually not collide).
       const rows = await tx
         .insert(schema.branches)
         .values({ restaurantId: params.restaurantId, name: params.name, timezone: params.timezone })

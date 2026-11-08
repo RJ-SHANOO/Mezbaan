@@ -11,6 +11,7 @@ export interface DeviceRecord {
   branchId: string;
   label: string;
   deviceType: "pos_terminal" | "kitchen_display" | "tablet" | "other";
+  terminalNumber: number;
   status: "active" | "revoked";
   lastSeenAt: Date | null;
   revokedAt: Date | null;
@@ -73,14 +74,11 @@ export class DeviceService {
 
   async create(params: CreateDeviceParams): Promise<DeviceRecord> {
     return withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
+      // terminal_number (P1-28's "T2" prefix) is assigned automatically by a DB
+      // trigger — same reasoning as branches.branchNumber.
       const rows = await tx
         .insert(schema.devices)
-        .values({
-          restaurantId: params.restaurantId,
-          branchId: params.branchId,
-          label: params.label,
-          deviceType: params.deviceType,
-        })
+        .values({ restaurantId: params.restaurantId, branchId: params.branchId, label: params.label, deviceType: params.deviceType })
         .returning();
       const device = rows[0];
       if (!device) throw new Error("create: device insert returned no row");
