@@ -40,3 +40,14 @@ uuid = { version = "1", features = ["v7"] }
 # changed the *unified* result and triggered a from-source OpenSSL build that isn't
 # set up to succeed in this environment (perl not configured for it).
 reqwest = { version = "0.13", features = ["blocking", "json"] }
+# Pure Rust, no C/OpenSSL compilation at all — verifies the Ed25519 signature on
+# each downstream sync snapshot (P1-27/P1-27b) against the server's public key.
+# "pkcs8" so a server-issued SPKI PEM public key can be parsed directly, no manual
+# ASN.1 handling.
+ed25519-dalek = { version = "2", features = ["pkcs8", "pem", "rand_core"] }
+base64 = "0.22"
+# Matches packages/nest-core/src/password.ts's hashPassword/verifyPassword exactly
+# (N=16384, r=8, p=1, 64-byte output, "salthex:hashhex" encoding) — same algorithm,
+# same parameters, so a manager's PIN hash synced down (P1-27) verifies offline the
+# identical way the server would verify it online.
+scrypt = { version = "0.11", default-features = false }

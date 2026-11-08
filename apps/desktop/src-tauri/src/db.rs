@@ -65,6 +65,7 @@ struct Migration {
 const MIGRATIONS: &[Migration] = &[
     Migration { version: 1, name: "init", sql: include_str!("../migrations/0001_init.sql") },
     Migration { version: 2, name: "operation_log", sql: include_str!("../migrations/0002_operation_log.sql") },
+    Migration { version: 3, name: "manager_pin_offline", sql: include_str!("../migrations/0003_manager_pin_offline.sql") },
 ];
 
 fn db_path(app_data_dir: &Path) -> PathBuf {
