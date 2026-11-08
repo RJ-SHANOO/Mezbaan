@@ -28,3 +28,5 @@ rand = "0.8"
 keyring = "4.2.0"
 tauri-plugin-updater = "2.14.1"
 tauri-plugin-process = "2.4.0"
+sysinfo = { version = "0.38.4", default-features = false, features = ["system"] }
+tauri-plugin-autostart = "2.7.0"

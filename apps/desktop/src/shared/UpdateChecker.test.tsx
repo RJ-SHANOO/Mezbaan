@@ -77,10 +77,11 @@ describe("UpdateChecker", () => {
     });
   });
 
-  it("downloads and installs when an update is available", async () => {
+  it("marks a clean shutdown before downloading and installing an available update", async () => {
     invokeMock.mockImplementation((command: string) => {
       if (command === "get_device_token") return Promise.resolve("r1.sometoken");
       if (command === "rollback_status") return Promise.resolve({ attempt: 0, shouldRollBack: false, rollbackTargetVersion: null });
+      if (command === "mark_clean_shutdown") return Promise.resolve(undefined);
       throw new Error(`unexpected command: ${command}`);
     });
     const downloadAndInstall = vi.fn().mockResolvedValue(undefined);
@@ -88,6 +89,7 @@ describe("UpdateChecker", () => {
 
     await renderAndFlush();
 
+    expect(invokeMock).toHaveBeenCalledWith("mark_clean_shutdown");
     expect(downloadAndInstall).toHaveBeenCalled();
   });
 
