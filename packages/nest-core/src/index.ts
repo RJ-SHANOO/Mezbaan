@@ -91,3 +91,10 @@ export { DevicesTerminalModule } from "./devices-terminal.module.js";
 export { ReleasesService, type CheckForUpdateParams } from "./releases.service.js";
 export { ReleasesController } from "./releases.controller.js";
 export { ReleasesModule } from "./releases.module.js";
+export {
+  FeatureFlagsService,
+  type FeatureFlagRecord,
+  type SetFeatureFlagParams,
+} from "./feature-flags.service.js";
+export { FeatureFlagsController } from "./feature-flags.controller.js";
+export { FeatureFlagsModule } from "./feature-flags.module.js";

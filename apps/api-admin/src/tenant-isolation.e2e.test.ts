@@ -9,6 +9,7 @@ import {
   DEV_JWT_SECRET,
   PermissionGuard,
   PermissionsService,
+  signAccessToken,
   TenantContextGuard,
   verifyAccessToken,
 } from "@mezbaan/nest-core";
@@ -321,6 +322,85 @@ describe("tenant isolation — api-admin HTTP endpoints", () => {
       headers: { authorization: `Bearer ${tenantA.accessToken}` },
     });
     expect(revoke.statusCode).toBe(404);
+  });
+
+  function superAdminToken(): string {
+    return signAccessToken(
+      { sub: randomUUID(), restaurantId: null, isSuperAdmin: true, roleKey: "super_admin", branchId: null },
+      { secret: SECRET },
+    );
+  }
+
+  it("a super admin can set a restaurant's feature flag, and the restaurant sees it on its own read (positive control)", async () => {
+    const tenant = await signup("iso-flags-ok");
+    const adminToken = superAdminToken();
+
+    const setFlag = await app.inject({
+      method: "PUT",
+      url: `/restaurants/${tenant.restaurantId}/feature-flags/inventory`,
+      headers: { authorization: `Bearer ${adminToken}` },
+      payload: { enabled: false },
+    });
+    expect(setFlag.statusCode).toBe(200);
+    expect(setFlag.json<{ moduleKey: string; enabled: boolean }>()).toMatchObject({ moduleKey: "inventory", enabled: false });
+
+    const adminList = await app.inject({
+      method: "GET",
+      url: `/restaurants/${tenant.restaurantId}/feature-flags`,
+      headers: { authorization: `Bearer ${adminToken}` },
+    });
+    expect(adminList.statusCode).toBe(200);
+    expect(adminList.json<Array<{ moduleKey: string }>>().map((f) => f.moduleKey)).toContain("inventory");
+
+    const ownList = await app.inject({ method: "GET", url: "/feature-flags", headers: { authorization: `Bearer ${tenant.accessToken}` } });
+    expect(ownList.statusCode).toBe(200);
+    expect(ownList.json<Array<{ moduleKey: string; enabled: boolean }>>()).toContainEqual(
+      expect.objectContaining({ moduleKey: "inventory", enabled: false }),
+    );
+  });
+
+  it("a restaurant's own token can never set or cross-tenant-read feature flags — super-admin only", async () => {
+    const tenantA = await signup("iso-flags-attack-a");
+    const tenantB = await signup("iso-flags-attack-b");
+
+    const setOwn = await app.inject({
+      method: "PUT",
+      url: `/restaurants/${tenantA.restaurantId}/feature-flags/inventory`,
+      headers: { authorization: `Bearer ${tenantA.accessToken}` },
+      payload: { enabled: false },
+    });
+    expect(setOwn.statusCode).toBe(403);
+
+    const readOther = await app.inject({
+      method: "GET",
+      url: `/restaurants/${tenantB.restaurantId}/feature-flags`,
+      headers: { authorization: `Bearer ${tenantA.accessToken}` },
+    });
+    expect(readOther.statusCode).toBe(403);
+
+    const setOther = await app.inject({
+      method: "PUT",
+      url: `/restaurants/${tenantB.restaurantId}/feature-flags/inventory`,
+      headers: { authorization: `Bearer ${tenantA.accessToken}` },
+      payload: { enabled: false },
+    });
+    expect(setOther.statusCode).toBe(403);
+  });
+
+  it("one restaurant's own-flags read never shows another restaurant's flag that a super admin set", async () => {
+    const tenantA = await signup("iso-flags-read-a");
+    const tenantB = await signup("iso-flags-read-b");
+    const adminToken = superAdminToken();
+
+    await app.inject({
+      method: "PUT",
+      url: `/restaurants/${tenantB.restaurantId}/feature-flags/reports`,
+      headers: { authorization: `Bearer ${adminToken}` },
+      payload: { enabled: false },
+    });
+
+    const ownListA = await app.inject({ method: "GET", url: "/feature-flags", headers: { authorization: `Bearer ${tenantA.accessToken}` } });
+    expect(ownListA.json<Array<{ moduleKey: string }>>().map((f) => f.moduleKey)).not.toContain("reports");
   });
 
   it("an invalid or missing token is rejected by every protected route the same way", async () => {

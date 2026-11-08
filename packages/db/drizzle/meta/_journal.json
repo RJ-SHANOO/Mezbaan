@@ -43,6 +43,13 @@
       "when": 1794085206026,
       "tag": "0005_marvelous_selene",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794147761851,
+      "tag": "0006_amazing_slipstream",
+      "breakpoints": true
     }
   ]
 }

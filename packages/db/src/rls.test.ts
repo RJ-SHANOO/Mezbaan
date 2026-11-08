@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import type { Pool } from "pg";
 import { createDb, createPool, withTenant, type Database } from "./client.js";
-import { auditLogs, branches, devices, managerPins, passwordResetTokens, restaurants, roles, sessions, users } from "./schema/index.js";
+import { auditLogs, branches, devices, featureFlags, managerPins, passwordResetTokens, restaurants, roles, sessions, users } from "./schema/index.js";
 
 /**
  * Connects as the restricted `mezbaan_app` role (see app-role.ts) — NOT the migration
@@ -293,5 +293,62 @@ describe("sessions/password_reset_tokens — tenant isolation (P1-16)", () => {
         }),
       ),
     ).rejects.toThrow();
+  });
+});
+
+describe("feature_flags — writes are super-admin-only, reads are tenant-scoped (P1-23)", () => {
+  it("a tenant session sees only its own restaurant's flags", async () => {
+    const restaurantAId = await createRestaurant("Tenant EE");
+    const restaurantBId = await createRestaurant("Tenant FF");
+
+    await withTenant(db, { restaurantId: restaurantAId, isSuperAdmin: true }, (tx) =>
+      tx.insert(featureFlags).values({ restaurantId: restaurantAId, moduleKey: "inventory", enabled: false }),
+    );
+
+    const seenByB = await withTenant(db, { restaurantId: restaurantBId }, (tx) => tx.select().from(featureFlags));
+    expect(seenByB).toEqual([]);
+
+    const seenByA = await withTenant(db, { restaurantId: restaurantAId }, (tx) => tx.select().from(featureFlags));
+    expect(seenByA).toHaveLength(1);
+  });
+
+  it("a plain tenant session cannot insert a flag for its own restaurant — writes need a super-admin session", async () => {
+    const restaurantId = await createRestaurant("Tenant GG");
+
+    await expect(
+      withTenant(db, { restaurantId }, (tx) => tx.insert(featureFlags).values({ restaurantId, moduleKey: "inventory", enabled: false })),
+    ).rejects.toThrow();
+  });
+
+  it("a plain tenant session cannot update a flag for its own restaurant", async () => {
+    const restaurantId = await createRestaurant("Tenant HH");
+    const rows = await withTenant(db, { restaurantId, isSuperAdmin: true }, (tx) =>
+      tx.insert(featureFlags).values({ restaurantId, moduleKey: "inventory", enabled: true }).returning({ id: featureFlags.id }),
+    );
+    const flagId = rows[0]?.id;
+    if (!flagId) throw new Error("fixture: feature_flags insert returned no row");
+
+    // Not a thrown error — RLS's `using` clause just makes the row invisible to the
+    // UPDATE, so zero rows are affected (same as restaurants' delete-requires-super-admin case).
+    await withTenant(db, { restaurantId }, (tx) => tx.update(featureFlags).set({ enabled: false }).where(eq(featureFlags.id, flagId)));
+    const stillEnabled = await withTenant(db, { restaurantId, isSuperAdmin: true }, (tx) =>
+      tx.select().from(featureFlags).where(eq(featureFlags.id, flagId)),
+    );
+    expect(stillEnabled[0]?.enabled).toBe(true);
+  });
+
+  it("a super-admin session can insert, update, and read any restaurant's flags", async () => {
+    const restaurantId = await createRestaurant("Tenant II");
+    const rows = await withTenant(db, { restaurantId, isSuperAdmin: true }, (tx) =>
+      tx.insert(featureFlags).values({ restaurantId, moduleKey: "kitchen", enabled: true }).returning({ id: featureFlags.id }),
+    );
+    const flagId = rows[0]?.id;
+    if (!flagId) throw new Error("fixture: feature_flags insert returned no row");
+
+    await withTenant(db, { restaurantId, isSuperAdmin: true }, (tx) =>
+      tx.update(featureFlags).set({ enabled: false }).where(eq(featureFlags.id, flagId)),
+    );
+    const seen = await withTenant(db, { restaurantId, isSuperAdmin: true }, (tx) => tx.select().from(featureFlags).where(eq(featureFlags.id, flagId)));
+    expect(seen[0]?.enabled).toBe(false);
   });
 });

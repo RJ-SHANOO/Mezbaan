@@ -54,3 +54,11 @@ export {
   PendingInvitationSchema,
   type PendingInvitation,
 } from "./users.js";
+export {
+  ModuleKeySchema,
+  type ModuleKey,
+  SetFeatureFlagSchema,
+  type SetFeatureFlag,
+  FeatureFlagSchema,
+  type FeatureFlag,
+} from "./feature-flags.js";

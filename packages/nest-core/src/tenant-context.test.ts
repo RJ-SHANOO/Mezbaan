@@ -127,4 +127,37 @@ describe("TenantContextGuard", () => {
       ),
     ).toThrow();
   });
+
+  const superAdminClaims: AccessTokenClaims = {
+    sub: "super-admin-1",
+    restaurantId: null,
+    isSuperAdmin: true,
+    roleKey: "super_admin",
+    branchId: null,
+  };
+
+  it("lets a super-admin token name a restaurant_id in a route param — P1-23", () => {
+    const token = signAccessToken(superAdminClaims, { secret: SECRET });
+    const allowed = guard.canActivate(
+      fakeContext({
+        headers: { authorization: `Bearer ${token}` },
+        params: { restaurantId: "99999999-9999-9999-9999-999999999999" },
+      }),
+    );
+    expect(allowed).toBe(true);
+    expect(getTenantContext().isSuperAdmin).toBe(true);
+    expect(getTenantContext().restaurantId).toBeNull(); // the token's own claim, unaffected by the param
+  });
+
+  it("still rejects a non-super-admin token naming any restaurant_id other than its own in params", () => {
+    const token = signAccessToken(claims, { secret: SECRET });
+    expect(() =>
+      guard.canActivate(
+        fakeContext({
+          headers: { authorization: `Bearer ${token}` },
+          params: { restaurantId: "99999999-9999-9999-9999-999999999999" },
+        }),
+      ),
+    ).toThrow();
+  });
 });

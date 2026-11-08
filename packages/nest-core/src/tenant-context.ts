@@ -112,6 +112,15 @@ export interface TenantContextGuardOptions {
  * job (P1-12). An invalid/expired token, or a body/query/param that names a
  * restaurant_id other than the token's, is always rejected — the second case is
  * exactly rule 1's "reject any conflict."
+ *
+ * A super-admin token is the one exception: its own restaurantId claim is always
+ * null (it isn't scoped to any tenant), so "reject anything that differs from the
+ * token's restaurantId" would reject every restaurantId a super-admin route ever
+ * legitimately names (P1-23's cross-restaurant flag endpoints, P3-39's Super Admin
+ * screens). There's no spoofing risk to guard against here — a super-admin token
+ * doesn't claim to BE a tenant, so there's nothing for a request body/param to
+ * disagree with; the explicit restaurantId it names is still enforced for real by
+ * RLS/withTenant at the data layer, same as everywhere else.
  */
 @Injectable()
 export class TenantContextGuard implements CanActivate {
@@ -139,9 +148,11 @@ export class TenantContextGuard implements CanActivate {
       throw new UnauthorizedException("Invalid or expired access token");
     }
 
-    for (const source of [request.body, request.query, request.params]) {
-      if (findConflictingRestaurantId(source, claims.restaurantId) !== undefined) {
-        throw new ForbiddenException("restaurant_id in the request does not match the authenticated tenant");
+    if (!claims.isSuperAdmin) {
+      for (const source of [request.body, request.query, request.params]) {
+        if (findConflictingRestaurantId(source, claims.restaurantId) !== undefined) {
+          throw new ForbiddenException("restaurant_id in the request does not match the authenticated tenant");
+        }
       }
     }
 
