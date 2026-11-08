@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import type { Pool } from "pg";
 import { createDb, createPool, withTenant, type Database } from "./client.js";
-import { auditLogs, branches, devices, featureFlags, managerPins, passwordResetTokens, restaurants, roles, sessions, users } from "./schema/index.js";
+import { auditLogs, branches, devices, featureFlags, managerPins, passwordResetTokens, restaurants, roles, sessions, syncOperations, users } from "./schema/index.js";
 
 /**
  * Connects as the restricted `mezbaan_app` role (see app-role.ts) — NOT the migration
@@ -350,5 +350,67 @@ describe("feature_flags — writes are super-admin-only, reads are tenant-scoped
     );
     const seen = await withTenant(db, { restaurantId, isSuperAdmin: true }, (tx) => tx.select().from(featureFlags).where(eq(featureFlags.id, flagId)));
     expect(seen[0]?.enabled).toBe(false);
+  });
+});
+
+describe("sync_operations — tenant isolation (P1-26)", () => {
+  async function createFixture(name: string): Promise<{ restaurantId: string; branchId: string; deviceId: string }> {
+    const restaurantId = await createRestaurant(name);
+    return withTenant(db, { restaurantId }, async (tx) => {
+      const branchRows = await tx
+        .insert(branches)
+        .values({ restaurantId, name: "Main", timezone: "Asia/Karachi" })
+        .returning({ id: branches.id });
+      const branchId = branchRows[0]?.id;
+      if (!branchId) throw new Error("fixture: branch insert returned no row");
+
+      const deviceRows = await tx
+        .insert(devices)
+        .values({ restaurantId, branchId, label: "Terminal", deviceType: "pos_terminal" })
+        .returning({ id: devices.id });
+      const deviceId = deviceRows[0]?.id;
+      if (!deviceId) throw new Error("fixture: device insert returned no row");
+
+      return { restaurantId, branchId, deviceId };
+    });
+  }
+
+  it("a sync_operations row is invisible to another tenant's session", async () => {
+    const a = await createFixture("Tenant JJ");
+    const b = await createFixture("Tenant KK");
+
+    await withTenant(db, { restaurantId: a.restaurantId }, (tx) =>
+      tx.insert(syncOperations).values({
+        id: randomUUID(),
+        restaurantId: a.restaurantId,
+        branchId: a.branchId,
+        deviceId: a.deviceId,
+        idempotencyKey: "op-a",
+        operationType: "widget.created",
+        payload: "{}",
+      }),
+    );
+
+    const seenByB = await withTenant(db, { restaurantId: b.restaurantId }, (tx) => tx.select().from(syncOperations));
+    expect(seenByB).toEqual([]);
+  });
+
+  it("rejects inserting a sync_operations row for a different restaurant than the session's own tenant", async () => {
+    const a = await createFixture("Tenant LL");
+    const b = await createFixture("Tenant MM");
+
+    await expect(
+      withTenant(db, { restaurantId: a.restaurantId }, (tx) =>
+        tx.insert(syncOperations).values({
+          id: randomUUID(),
+          restaurantId: b.restaurantId,
+          branchId: b.branchId,
+          deviceId: b.deviceId,
+          idempotencyKey: "op-cross",
+          operationType: "widget.created",
+          payload: "{}",
+        }),
+      ),
+    ).rejects.toThrow();
   });
 });

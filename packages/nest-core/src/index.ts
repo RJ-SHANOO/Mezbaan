@@ -98,3 +98,6 @@ export {
 } from "./feature-flags.service.js";
 export { FeatureFlagsController } from "./feature-flags.controller.js";
 export { FeatureFlagsModule } from "./feature-flags.module.js";
+export { SyncService, type ReceiveBatchParams } from "./sync.service.js";
+export { SyncController } from "./sync.controller.js";
+export { SyncModule } from "./sync.module.js";

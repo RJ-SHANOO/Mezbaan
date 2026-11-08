@@ -62,3 +62,13 @@ export {
   FeatureFlagSchema,
   type FeatureFlag,
 } from "./feature-flags.js";
+export {
+  SyncOperationSchema,
+  type SyncOperation,
+  SyncBatchRequestSchema,
+  type SyncBatchRequest,
+  SyncOperationResultSchema,
+  type SyncOperationResult,
+  SyncBatchResponseSchema,
+  type SyncBatchResponse,
+} from "./sync.js";

@@ -12,3 +12,4 @@ export { auditLogs } from "./audit-logs.js";
 export { userInvitations } from "./user-invitations.js";
 export { appReleases } from "./app-releases.js";
 export { featureFlags } from "./feature-flags.js";
+export { syncOperations } from "./sync-operations.js";

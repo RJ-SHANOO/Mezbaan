@@ -50,6 +50,13 @@
       "when": 1794147761851,
       "tag": "0006_amazing_slipstream",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794166755712,
+      "tag": "0007_fat_post",
+      "breakpoints": true
     }
   ]
 }
