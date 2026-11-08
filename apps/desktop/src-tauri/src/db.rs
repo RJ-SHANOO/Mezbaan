@@ -62,11 +62,10 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "init",
-    sql: include_str!("../migrations/0001_init.sql"),
-}];
+const MIGRATIONS: &[Migration] = &[
+    Migration { version: 1, name: "init", sql: include_str!("../migrations/0001_init.sql") },
+    Migration { version: 2, name: "operation_log", sql: include_str!("../migrations/0002_operation_log.sql") },
+];
 
 fn db_path(app_data_dir: &Path) -> PathBuf {
     app_data_dir.join(DB_FILE_NAME)

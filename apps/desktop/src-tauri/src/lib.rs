@@ -1,5 +1,6 @@
 mod db;
 mod device_token;
+mod operation_log;
 mod pending_work;
 mod pending_work_commands;
 mod secure_store;
