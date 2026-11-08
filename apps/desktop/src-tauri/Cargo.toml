@@ -30,3 +30,13 @@ tauri-plugin-updater = "2.14.1"
 tauri-plugin-process = "2.4.0"
 tauri-plugin-autostart = "2.7.0"
 uuid = { version = "1", features = ["v7"] }
+# blocking, not the async client: operation_log's Connection is behind a plain
+# std::sync::Mutex (DbState), and a blocking HTTP call from a background sync cycle
+# needs no async runtime of its own — reqwest 0.13 to match the version already
+# pulled in transitively by tauri-plugin-updater. Deliberately not touching
+# default-features/TLS backend here: tauri-plugin-updater's own reqwest usage already
+# builds fine, and Cargo unifies features for one resolved version across the whole
+# graph — narrowing this crate's own feature request (e.g. default-features = false)
+# changed the *unified* result and triggered a from-source OpenSSL build that isn't
+# set up to succeed in this environment (perl not configured for it).
+reqwest = { version = "0.13", features = ["blocking", "json"] }

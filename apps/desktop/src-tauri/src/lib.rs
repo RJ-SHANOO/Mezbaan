@@ -4,6 +4,7 @@ mod operation_log;
 mod pending_work;
 mod pending_work_commands;
 mod secure_store;
+mod sync_client;
 mod update_commands;
 mod update_health;
 

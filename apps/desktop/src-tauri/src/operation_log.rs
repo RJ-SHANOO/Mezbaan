@@ -119,6 +119,18 @@ pub fn list_unsynced(conn: &Connection) -> Result<Vec<LoggedOperation>, Operatio
     Ok(rows)
 }
 
+/// Called by the sync client (P1-25) once the server has acknowledged an operation.
+/// Idempotent: marking an already-synced or nonexistent id is a silent no-op, since a
+/// retried sync cycle (crash, timeout after the server actually committed) must not
+/// treat "nothing left to update" as an error.
+pub fn mark_synced(conn: &Connection, id: &str) -> Result<(), OperationLogError> {
+    conn.execute(
+        "UPDATE operation_log SET synced_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?1 AND synced_at IS NULL",
+        [id],
+    )?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -233,5 +245,30 @@ mod tests {
 
         let logged = list_unsynced(&conn).unwrap();
         assert_eq!(logged.iter().map(|o| o.idempotency_key.as_str()).collect::<Vec<_>>(), vec!["widget-a", "widget-b"]);
+    }
+
+    #[test]
+    fn mark_synced_removes_it_from_the_unsynced_list() {
+        let mut conn = test_conn();
+        let operation = op("widget-c");
+        let id = operation.id.clone();
+        record_once::<_, WidgetError, _>(&mut conn, operation, |_| Ok(())).unwrap();
+
+        mark_synced(&conn, &id).unwrap();
+
+        assert_eq!(list_unsynced(&conn).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn marking_an_unknown_or_already_synced_id_is_a_silent_no_op() {
+        let conn = test_conn();
+        mark_synced(&conn, "does-not-exist").unwrap();
+
+        let mut conn = conn;
+        let operation = op("widget-d");
+        let id = operation.id.clone();
+        record_once::<_, WidgetError, _>(&mut conn, operation, |_| Ok(())).unwrap();
+        mark_synced(&conn, &id).unwrap();
+        mark_synced(&conn, &id).unwrap(); // already synced — must not error
     }
 }
