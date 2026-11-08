@@ -72,3 +72,15 @@ export {
   SyncBatchResponseSchema,
   type SyncBatchResponse,
 } from "./sync.js";
+export {
+  SnapshotStaffMemberSchema,
+  type SnapshotStaffMember,
+  SnapshotBranchSchema,
+  type SnapshotBranch,
+  SnapshotContentSchema,
+  type SnapshotContent,
+  SyncSnapshotResponseSchema,
+  type SyncSnapshotResponse,
+  SnapshotPublicKeyResponseSchema,
+  type SnapshotPublicKeyResponse,
+} from "./sync-snapshot.js";

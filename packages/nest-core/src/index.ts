@@ -101,3 +101,12 @@ export { FeatureFlagsModule } from "./feature-flags.module.js";
 export { SyncService, type ReceiveBatchParams } from "./sync.service.js";
 export { SyncController } from "./sync.controller.js";
 export { SyncModule } from "./sync.module.js";
+export { SyncSnapshotService } from "./sync-snapshot.service.js";
+export { SyncSnapshotController } from "./sync-snapshot.controller.js";
+export {
+  getSnapshotKeyPair,
+  getSnapshotPublicKeyPem,
+  signBytes,
+  verifyBytes,
+  type SnapshotKeyPair,
+} from "./snapshot-signing.js";
