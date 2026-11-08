@@ -53,8 +53,13 @@ jobs:
 
       # The desktop app imports @mezbaan/contracts directly (PairingGate, device
       # token response parsing) — needs its dist/ built before `tauri build` runs.
+      # contracts itself imports from @mezbaan/domain (currency, money), so on a
+      # fresh checkout with nothing pre-built, `--filter @mezbaan/contracts` alone
+      # fails type-checking with "Cannot find module '@mezbaan/domain'" — the `...`
+      # suffix (not prefix — that selects *dependents* instead) also builds its
+      # workspace dependencies first, in order.
       - name: Build workspace dependencies
-        run: pnpm --filter @mezbaan/contracts build
+        run: pnpm --filter "@mezbaan/contracts..." build
 
       # tauri-build's build.rs validates every bundle.externalBin path exists on
       # disk *before* the main "app" binary compiles (see
