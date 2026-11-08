@@ -9,6 +9,12 @@ on:
 
 jobs:
   build-and-publish:
+    # The repo's default GITHUB_TOKEN permissions are read-only — tauri-action
+    # needs contents:write to create the (draft) GitHub Release and upload
+    # bundle/updater assets to it, or it fails with "Resource not accessible by
+    # integration" after doing a full platform build.
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
