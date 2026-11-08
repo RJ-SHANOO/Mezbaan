@@ -37,12 +37,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # TEMP DEBUG (P1-21): both job-level and workflow-level
-      # `permissions: contents: write` failed identically ("Resource not
-      # accessible by integration" creating a release) after a full,
-      # otherwise-successful platform build. Testing the same API call
-      # directly and fast, before spending ~10 more minutes on a build, to
-      # see the actual response instead of guessing. Remove once resolved.
+      # TEMP DEBUG (P1-21), round 2: a brand-new tag_name with no explicit
+      # target_commitish worked fine (201, contents=write accepted) — so the
+      # token/permission itself is NOT the problem. tauri-action's actual call
+      # (apps/desktop/node_modules/.../dist/index.js) instead targets a tag
+      # that *already exists* (the one we pushed ourselves) and passes
+      # target_commitish explicitly as context.sha. Reproducing that exact
+      # shape here to isolate which part of it GitHub actually rejects.
       - name: TEMP DEBUG - probe GITHUB_TOKEN release-creation permission
         if: matrix.os == 'ubuntu-22.04'
         shell: bash
@@ -51,7 +52,7 @@ jobs:
             -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github+json" \
             https://api.github.com/repos/${{ github.repository }}/releases \
-            -d '{"tag_name":"debug-permission-check-delete-me","draft":true,"name":"DEBUG delete me"}' || true
+            -d "{\"tag_name\":\"${{ github.ref_name }}\",\"target_commitish\":\"${{ github.sha }}\",\"draft\":true,\"name\":\"DEBUG delete me\"}" || true
 
       - name: Enable corepack
         run: corepack enable
