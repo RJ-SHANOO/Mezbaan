@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { gzipSync } from "node:zlib";
 import "reflect-metadata";
+import fastifyCompress from "@fastify/compress";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { NestFactory, Reflector } from "@nestjs/core";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
@@ -26,6 +28,10 @@ beforeAll(async () => {
   deviceService = new DeviceService(db, new AuditLogService(db));
 
   app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter());
+  // P1-35: matches main.ts's real bootstrap — the sync client gzips every batch,
+  // so this needs to be registered here too for the compressed-body test below to
+  // exercise the real decompression path, not just the guards/controller.
+  await app.register(fastifyCompress);
   app.useGlobalGuards(
     new TenantContextGuard({ secret: SECRET }),
     new PermissionGuard(new PermissionsService(app.get<Database>(DATABASE)), app.get(Reflector)),
@@ -99,6 +105,24 @@ describe("sync — HTTP tenant isolation (api-pos)", () => {
     expect(response.json<{ results: Array<{ id: string; status: string }> }>().results).toEqual([
       { id: operations[0]!.id, status: "accepted" },
       { id: operations[1]!.id, status: "accepted" },
+    ]);
+  });
+
+  it("P1-35: accepts a gzip-compressed batch (the real sync client's wire format)", async () => {
+    const { deviceToken } = await createPairedDevice("sync-gzip");
+    const operations = [operation("op-gzip-1")];
+    const compressedBody = gzipSync(JSON.stringify({ operations }));
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/sync/operations",
+      headers: { "x-device-token": deviceToken, "content-type": "application/json", "content-encoding": "gzip" },
+      payload: compressedBody,
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json<{ results: Array<{ id: string; status: string }> }>().results).toEqual([
+      { id: operations[0]!.id, status: "accepted" },
     ]);
   });
 

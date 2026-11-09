@@ -1,4 +1,5 @@
 import "reflect-metadata";
+import fastifyCompress from "@fastify/compress";
 import { NestFactory, Reflector } from "@nestjs/core";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
 import type { Database } from "@mezbaan/db";
@@ -28,6 +29,12 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter(), {
     logger: new PinoNestLogger({ serviceName: SERVICE_NAME }),
   });
+
+  // P1-35: the sync client gzips each batch (a terminal with days of offline
+  // backlog sends many of these) — decompresses the request here, transparently,
+  // before it ever reaches SyncController. Response compression (the plugin's other
+  // half) isn't the point here, but there's no reason to turn it off either.
+  await app.register(fastifyCompress);
 
   // The desktop app's webview calls this API directly (device pairing, and sync
   // later) — same cross-origin situation as apps/web calling api-admin. Covers the

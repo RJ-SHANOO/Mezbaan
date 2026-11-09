@@ -13,9 +13,13 @@
 //! against an in-memory mock instead of a live server.
 use crate::operation_log::{self, LoggedOperation};
 use crate::sync_status;
+use flate2::write::GzEncoder;
+use flate2::Compression;
+use rand::Rng;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::io::Write;
 use std::time::Duration;
 
 const BATCH_SIZE: usize = 50;
@@ -109,24 +113,38 @@ pub trait SyncTransport {
 pub struct ReqwestSyncTransport {
     client: reqwest::blocking::Client,
     sync_url: String,
+    device_token: String,
 }
 
 impl ReqwestSyncTransport {
-    pub fn new(sync_url: String) -> Result<Self, SyncError> {
+    pub fn new(sync_url: String, device_token: String) -> Result<Self, SyncError> {
         let client = reqwest::blocking::Client::builder()
             .timeout(REQUEST_TIMEOUT)
             .build()
             .map_err(|e| SyncError::Transport(e.to_string()))?;
-        Ok(Self { client, sync_url })
+        Ok(Self { client, sync_url, device_token })
     }
+}
+
+/// Gzips the JSON-encoded batch — P1-35's "compressed batches". A separate, pure
+/// function so the round trip is unit-testable without a real HTTP call.
+fn compress_batch(batch: &[SyncOperationPayload]) -> Result<Vec<u8>, SyncError> {
+    let json = serde_json::to_vec(&SyncBatchRequest { operations: batch }).map_err(|e| SyncError::Transport(e.to_string()))?;
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(&json).map_err(|e| SyncError::Transport(e.to_string()))?;
+    encoder.finish().map_err(|e| SyncError::Transport(e.to_string()))
 }
 
 impl SyncTransport for ReqwestSyncTransport {
     fn send_batch(&self, batch: &[SyncOperationPayload]) -> Result<SyncBatchResponse, SyncError> {
+        let compressed = compress_batch(batch)?;
         let response = self
             .client
             .post(&self.sync_url)
-            .json(&SyncBatchRequest { operations: batch })
+            .header("x-device-token", &self.device_token)
+            .header("Content-Type", "application/json")
+            .header("Content-Encoding", "gzip")
+            .body(compressed)
             .send()
             .map_err(|e| SyncError::Transport(e.to_string()))?;
 
@@ -139,10 +157,23 @@ impl SyncTransport for ReqwestSyncTransport {
 
 /// `attempt` is 1-based. Doubles each attempt, capped at MAX_BACKOFF — separated out
 /// from the retry loop purely so it's unit-testable without actually sleeping.
+/// Deliberately has no randomness of its own; see `jittered` for that.
 fn backoff_duration(attempt: u32) -> Duration {
     let factor = 2u64.saturating_pow(attempt.saturating_sub(1).min(10));
     let millis = (INITIAL_BACKOFF.as_millis() as u64).saturating_mul(factor);
     Duration::from_millis(millis.min(MAX_BACKOFF.as_millis() as u64))
+}
+
+/// P1-35's "random delay so terminals do not all reconnect at once": equal jitter
+/// (half the base delay, plus a random amount up to the other half) — a branch-wide
+/// outage fails every terminal's batch at close to the same instant, and without
+/// jitter they'd all retry on the exact same schedule and hit the server in lockstep
+/// the moment connectivity returns. Floors at half of `base` rather than full jitter
+/// (0..=base) so a retry is never *faster* than intended, only spread out later.
+fn jittered(base: Duration) -> Duration {
+    let half_millis = (base.as_millis() as u64) / 2;
+    let extra = rand::thread_rng().gen_range(0..=half_millis.max(1));
+    Duration::from_millis(half_millis + extra)
 }
 
 fn send_with_retry<T: SyncTransport>(
@@ -157,7 +188,7 @@ fn send_with_retry<T: SyncTransport>(
             Err(e) => {
                 last_err = Some(e);
                 if attempt < MAX_ATTEMPTS {
-                    sleep_fn(backoff_duration(attempt));
+                    sleep_fn(jittered(backoff_duration(attempt)));
                 }
             }
         }
@@ -266,6 +297,48 @@ mod tests {
         assert_eq!(backoff_duration(2), Duration::from_millis(1000));
         assert_eq!(backoff_duration(3), Duration::from_millis(2000));
         assert_eq!(backoff_duration(20), MAX_BACKOFF);
+    }
+
+    #[test]
+    fn jittered_stays_within_half_to_full_of_the_base_duration() {
+        let base = Duration::from_millis(1000);
+        for _ in 0..200 {
+            let result = jittered(base);
+            assert!(result >= Duration::from_millis(500), "{result:?} was below half of base");
+            assert!(result <= base, "{result:?} exceeded base");
+        }
+    }
+
+    #[test]
+    fn jittered_actually_varies_rather_than_returning_a_fixed_value() {
+        let base = Duration::from_millis(1000);
+        let samples: std::collections::HashSet<_> = (0..50).map(|_| jittered(base)).collect();
+        assert!(samples.len() > 1, "200 samples should not all land on the exact same value");
+    }
+
+    #[test]
+    fn compress_batch_round_trips_through_gzip_back_to_the_original_json() {
+        use std::io::Read;
+
+        let batch = vec![SyncOperationPayload {
+            id: "op-1".to_string(),
+            idempotency_key: "op-1".to_string(),
+            operation_type: "widget.created".to_string(),
+            payload: r#"{"label":"a widget"}"#.to_string(),
+            created_at: "2026-01-01T00:00:00.000Z".to_string(),
+        }];
+
+        let compressed = compress_batch(&batch).unwrap();
+        // Smaller than the equivalent uncompressed JSON would be, for a batch with
+        // this much repeated structure — proves it's actually compressed, not just
+        // re-encoded.
+        let uncompressed_len = serde_json::to_vec(&SyncBatchRequest { operations: &batch }).unwrap().len();
+        assert!(compressed.len() < uncompressed_len);
+
+        let mut decoder = flate2::read::GzDecoder::new(&compressed[..]);
+        let mut decompressed = String::new();
+        decoder.read_to_string(&mut decompressed).unwrap();
+        assert_eq!(decompressed, serde_json::to_string(&SyncBatchRequest { operations: &batch }).unwrap());
     }
 
     #[test]
