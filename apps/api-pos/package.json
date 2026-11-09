@@ -10,7 +10,8 @@
     "start": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src --max-warnings=0",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:tenant-isolation": "vitest run e2e"
   },
   "dependencies": {
     "@mezbaan/db": "workspace:*",

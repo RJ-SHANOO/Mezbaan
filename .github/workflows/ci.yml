@@ -176,3 +176,6 @@ jobs:
 
       - name: Every authenticated endpoint (api-admin)
         run: pnpm --filter @mezbaan/api-admin run test:tenant-isolation
+
+      - name: Every device-authenticated endpoint (api-pos)
+        run: pnpm --filter @mezbaan/api-pos run test:tenant-isolation

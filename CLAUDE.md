@@ -233,6 +233,11 @@ Ask the owner when a task reaches one of these. Until then, keep the value confi
 
 **Exit gate:** sync passes all fault tests; tenant isolation tests cover every endpoint; killing any process leaves the others running.
 
+**Exit gate review (2026-11-09):**
+- *Sync passes all fault tests* — P1-31's combined scenario (large backlog + lost connection mid-cycle + resume) plus P1-24/25/26's own resume-after-crash and server-side idempotent-retry tests. Pass.
+- *Tenant isolation tests cover every endpoint* — every mounted controller across `api-admin` (Auth, ManagerPin, Onboarding, Branches, UserInvitation, DevicesAdmin, FeatureFlags) and `api-pos` (DevicesTerminal, Releases, Sync, SyncSnapshot) has e2e isolation coverage, but only `api-admin`'s and `packages/db`'s ran as a *dedicated, separately-required* CI check — `api-pos`'s own e2e tests were only riding along inside the generic `test` step, which is a weaker signal than P1-16 intended. Added `api-pos`'s `test:tenant-isolation` script and a matching CI step so a regression there is its own required check too, same as `api-admin`. (`api-public`/`api-reports` have no real endpoints yet — nothing to isolate.) Pass, now that the gap's closed.
+- *Killing any process leaves the others running* — no automated test existed for this. Verified manually instead of building one: booted real `api-pos` and `api-admin` processes, confirmed both healthy, killed `api-pos`, confirmed `api-admin` kept responding (uptime continuing, no interruption) — proves the architectural independence (separate processes/ports/DB pools, P1-05) actually holds, not just on paper. Pass.
+
 ---
 
 ### Phase 2: Complete offline POS
