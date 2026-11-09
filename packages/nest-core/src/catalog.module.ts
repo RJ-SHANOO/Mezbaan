@@ -12,6 +12,11 @@ import { ModifierGroupsController } from "./modifier-groups.controller.js";
 import { ModifierGroupsService } from "./modifier-groups.service.js";
 import { ModifierOptionsController } from "./modifier-options.controller.js";
 import { ModifierOptionsService } from "./modifier-options.service.js";
+import { PriceListItemsController } from "./price-list-items.controller.js";
+import { PriceListItemsService } from "./price-list-items.service.js";
+import { PriceListsController } from "./price-lists.controller.js";
+import { PriceListsService } from "./price-lists.service.js";
+import { PriceResolutionService } from "./price-resolution.service.js";
 import { ProductVariantsController } from "./product-variants.controller.js";
 import { ProductVariantsService } from "./product-variants.service.js";
 import { ProductsController } from "./products.controller.js";
@@ -20,9 +25,9 @@ import { ProductsService } from "./products.service.js";
 @Module({})
 export class CatalogModule {
   /** Requires DbModule.forRoot(...) to already be imported, same as the other
-   * feature modules. Categories, products, variants, modifiers (P2-02) and
-   * combos (P2-03) all share one module — all catalog management, all gated
-   * by the same menu.manage permission. */
+   * feature modules. Categories, products, variants, modifiers (P2-02),
+   * combos (P2-03) and price lists (P2-04) all share one module — all
+   * catalog management, all gated by the same menu.manage permission. */
   static forRoot(): DynamicModule {
     return {
       module: CatalogModule,
@@ -35,6 +40,8 @@ export class CatalogModule {
         CombosController,
         ComboSlotsController,
         ComboSlotItemsController,
+        PriceListsController,
+        PriceListItemsController,
       ],
       providers: [
         CategoriesService,
@@ -45,6 +52,9 @@ export class CatalogModule {
         CombosService,
         ComboSlotsService,
         ComboSlotItemsService,
+        PriceListsService,
+        PriceListItemsService,
+        PriceResolutionService,
         AuditLogService,
       ],
       exports: [
@@ -56,6 +66,9 @@ export class CatalogModule {
         CombosService,
         ComboSlotsService,
         ComboSlotItemsService,
+        PriceListsService,
+        PriceListItemsService,
+        PriceResolutionService,
       ],
     };
   }

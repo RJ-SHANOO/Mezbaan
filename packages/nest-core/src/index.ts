@@ -163,4 +163,21 @@ export {
   type DetachComboSlotItemParams,
 } from "./combo-slot-items.service.js";
 export { ComboSlotItemsController } from "./combo-slot-items.controller.js";
+export {
+  PriceListsService,
+  type OrderType,
+  type PriceListRecord,
+  type CreatePriceListParams,
+  type UpdatePriceListParams,
+  type PriceListActionParams,
+} from "./price-lists.service.js";
+export { PriceListsController } from "./price-lists.controller.js";
+export {
+  PriceListItemsService,
+  type PriceListItemRecord,
+  type SetPriceListItemParams,
+  type RemovePriceListItemParams,
+} from "./price-list-items.service.js";
+export { PriceListItemsController } from "./price-list-items.controller.js";
+export { PriceResolutionService, type ResolvePriceParams, type ResolvedPriceRecord } from "./price-resolution.service.js";
 export { CatalogModule } from "./catalog.module.js";

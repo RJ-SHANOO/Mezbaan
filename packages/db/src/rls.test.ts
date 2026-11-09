@@ -17,6 +17,8 @@ import {
   modifierOptions,
   outbox,
   passwordResetTokens,
+  priceListItems,
+  priceLists,
   productBranchAvailability,
   productModifierGroups,
   products,
@@ -711,5 +713,56 @@ describe("combos/combo_slots/combo_slot_items — tenant isolation (P2-03)", () 
 
     const seenByB = await withTenant(db, { restaurantId: restaurantBId }, (tx) => tx.select().from(comboSlotItems));
     expect(seenByB).toEqual([]);
+  });
+});
+
+describe("price_lists/price_list_items — tenant isolation (P2-04)", () => {
+  it("a price list created under one tenant is never visible to another tenant's session", async () => {
+    const restaurantAId = await createRestaurant("Tenant RRR");
+    const restaurantBId = await createRestaurant("Tenant SSS2");
+
+    await withTenant(db, { restaurantId: restaurantAId }, (tx) => tx.insert(priceLists).values({ restaurantId: restaurantAId, name: "Standard", currency: "PKR" }));
+
+    const seenByB = await withTenant(db, { restaurantId: restaurantBId }, (tx) => tx.select().from(priceLists));
+    expect(seenByB).toEqual([]);
+  });
+
+  it("a price_list_items row created under one tenant is never visible to another tenant's session", async () => {
+    const restaurantAId = await createRestaurant("Tenant TTT2");
+    const restaurantBId = await createRestaurant("Tenant UUU2");
+
+    const { priceListId, productId } = await withTenant(db, { restaurantId: restaurantAId }, async (tx) => {
+      const priceListRows = await tx.insert(priceLists).values({ restaurantId: restaurantAId, name: "Standard", currency: "PKR" }).returning({ id: priceLists.id });
+      const priceListId = priceListRows[0]?.id;
+      if (!priceListId) throw new Error("fixture: price list insert returned no row");
+      const categoryRows = await tx.insert(categories).values({ restaurantId: restaurantAId, name: "Burgers" }).returning({ id: categories.id });
+      const categoryId = categoryRows[0]?.id;
+      if (!categoryId) throw new Error("fixture: category insert returned no row");
+      const productRows = await tx.insert(products).values({ restaurantId: restaurantAId, categoryId, name: "Cheeseburger" }).returning({ id: products.id });
+      const productId = productRows[0]?.id;
+      if (!productId) throw new Error("fixture: product insert returned no row");
+      return { priceListId, productId };
+    });
+    await withTenant(db, { restaurantId: restaurantAId }, (tx) =>
+      tx.insert(priceListItems).values({ restaurantId: restaurantAId, priceListId, productId, unitPriceMinor: 1500n }),
+    );
+
+    const seenByB = await withTenant(db, { restaurantId: restaurantBId }, (tx) => tx.select().from(priceListItems));
+    expect(seenByB).toEqual([]);
+  });
+
+  it("the restaurant+name+version UNIQUE index actually rejects a duplicate version (the real guarantee, not just the trigger's usual behavior)", async () => {
+    const restaurantId = await createRestaurant("Tenant VVV2");
+
+    const firstVersion = await withTenant(db, { restaurantId }, async (tx) => {
+      const rows = await tx.insert(priceLists).values({ restaurantId, name: "Standard", currency: "PKR" }).returning({ version: priceLists.version });
+      const version = rows[0]?.version;
+      if (version === undefined) throw new Error("fixture: price list insert returned no row");
+      return version;
+    });
+
+    await expect(
+      withTenant(db, { restaurantId }, (tx) => tx.insert(priceLists).values({ restaurantId, name: "Standard", currency: "PKR", version: firstVersion })),
+    ).rejects.toThrow();
   });
 });

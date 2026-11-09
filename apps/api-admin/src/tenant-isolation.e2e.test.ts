@@ -681,6 +681,90 @@ describe("tenant isolation — api-admin HTTP endpoints", () => {
     expect(attachByB.statusCode).toBe(404);
   });
 
+  it("a restaurant can create a draft price list, price a product, publish it, and resolve the price (positive control)", async () => {
+    const tenant = await signup("iso-price-ok");
+
+    const category = await app.inject({ method: "POST", url: "/categories", headers: { authorization: `Bearer ${tenant.accessToken}` }, payload: { name: "Burgers" } });
+    const categoryId = category.json<{ id: string }>().id;
+    const product = await app.inject({ method: "POST", url: "/products", headers: { authorization: `Bearer ${tenant.accessToken}` }, payload: { categoryId, name: "Cheeseburger" } });
+    const productId = product.json<{ id: string }>().id;
+
+    const priceList = await app.inject({
+      method: "POST",
+      url: "/price-lists",
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+      payload: { name: "Standard", currency: "PKR" },
+    });
+    expect(priceList.statusCode).toBe(201);
+    const priceListId = priceList.json<{ id: string; status: string; version: number }>().id;
+    expect(priceList.json<{ version: number }>().version).toBe(1);
+
+    const setPrice = await app.inject({
+      method: "PUT",
+      url: `/price-lists/${priceListId}/items`,
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+      payload: { productId, unitPriceMinor: "1500" },
+    });
+    expect(setPrice.statusCode).toBe(200);
+
+    const publish = await app.inject({ method: "POST", url: `/price-lists/${priceListId}/publish`, headers: { authorization: `Bearer ${tenant.accessToken}` } });
+    expect(publish.statusCode).toBe(201);
+    expect(publish.json<{ status: string }>().status).toBe("published");
+
+    const resolve = await app.inject({
+      method: "GET",
+      url: `/price-lists/resolve?branchId=${tenant.branchId}&orderType=dine_in&productId=${productId}`,
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+    });
+    expect(resolve.statusCode).toBe(200);
+    expect(resolve.json<{ unitPriceMinor: string }>().unitPriceMinor).toBe("1500");
+  });
+
+  it("one restaurant's token can never see, edit, or resolve prices from another restaurant's price list", async () => {
+    const tenantA = await signup("iso-price-a");
+    const tenantB = await signup("iso-price-b");
+
+    const category = await app.inject({ method: "POST", url: "/categories", headers: { authorization: `Bearer ${tenantA.accessToken}` }, payload: { name: "Burgers" } });
+    const categoryId = category.json<{ id: string }>().id;
+    const product = await app.inject({ method: "POST", url: "/products", headers: { authorization: `Bearer ${tenantA.accessToken}` }, payload: { categoryId, name: "Cheeseburger" } });
+    const productId = product.json<{ id: string }>().id;
+    const priceList = await app.inject({
+      method: "POST",
+      url: "/price-lists",
+      headers: { authorization: `Bearer ${tenantA.accessToken}` },
+      payload: { name: "A's List", currency: "PKR" },
+    });
+    const priceListId = priceList.json<{ id: string }>().id;
+    await app.inject({
+      method: "PUT",
+      url: `/price-lists/${priceListId}/items`,
+      headers: { authorization: `Bearer ${tenantA.accessToken}` },
+      payload: { productId, unitPriceMinor: "1500" },
+    });
+    await app.inject({ method: "POST", url: `/price-lists/${priceListId}/publish`, headers: { authorization: `Bearer ${tenantA.accessToken}` } });
+
+    const listByB = await app.inject({ method: "GET", url: "/price-lists", headers: { authorization: `Bearer ${tenantB.accessToken}` } });
+    expect(listByB.json<unknown[]>()).toEqual([]);
+
+    const updateByB = await app.inject({
+      method: "PATCH",
+      url: `/price-lists/${priceListId}`,
+      headers: { authorization: `Bearer ${tenantB.accessToken}` },
+      payload: { priority: 5 },
+    });
+    expect(updateByB.statusCode).toBe(404);
+
+    const resolveByB = await app.inject({
+      method: "GET",
+      url: `/price-lists/resolve?branchId=${tenantB.branchId}&orderType=dine_in&productId=${productId}`,
+      headers: { authorization: `Bearer ${tenantB.accessToken}` },
+    });
+    // No error — just correctly finds nothing, since the product and the price
+    // list both belong to tenant A and are invisible under tenant B's RLS context.
+    expect(resolveByB.statusCode).toBe(200);
+    expect(resolveByB.json()).toBeNull();
+  });
+
   it("an invalid or missing token is rejected by every protected route the same way", async () => {
     const noToken = await app.inject({ method: "POST", url: "/manager-pin", payload: { pin: "1234" } });
     expect(noToken.statusCode).toBe(401);
