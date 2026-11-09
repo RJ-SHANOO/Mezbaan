@@ -17,3 +17,7 @@ export { outbox } from "./outbox.js";
 export { categories } from "./categories.js";
 export { products } from "./products.js";
 export { productBranchAvailability } from "./product-branch-availability.js";
+export { productVariants } from "./product-variants.js";
+export { modifierGroups } from "./modifier-groups.js";
+export { modifierOptions } from "./modifier-options.js";
+export { productModifierGroups } from "./product-modifier-groups.js";

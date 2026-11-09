@@ -1,18 +1,21 @@
-import { Body, Controller, Get, Param, Patch, Post, Put, Query, UnauthorizedException } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, UnauthorizedException } from "@nestjs/common";
 import { z } from "zod";
 import {
+  AttachModifierGroupSchema,
   CreateProductSchema,
   SetProductBranchAvailabilitySchema,
   UpdateProductSchema,
   type Product,
   type ProductBranchAvailability,
+  type ProductModifierGroup,
 } from "@mezbaan/contracts";
 import { getTenantContext } from "./tenant-context.js";
 import { RequirePermission } from "./permission.decorator.js";
-import { ProductsService, type ProductBranchAvailabilityRecord, type ProductRecord } from "./products.service.js";
+import { ProductsService, type ProductBranchAvailabilityRecord, type ProductModifierGroupRecord, type ProductRecord } from "./products.service.js";
 import { parseOrBadRequest } from "./validation.js";
 
 const ProductIdParamSchema = z.object({ id: z.string().uuid() });
+const ModifierGroupParamSchema = z.object({ id: z.string().uuid(), modifierGroupId: z.string().uuid() });
 const ListProductsQuerySchema = z.object({ categoryId: z.string().uuid().optional() });
 
 function toProductResponse(product: ProductRecord): Product {
@@ -32,6 +35,10 @@ function toProductResponse(product: ProductRecord): Product {
 
 function toAvailabilityResponse(record: ProductBranchAvailabilityRecord): ProductBranchAvailability {
   return { branchId: record.branchId, available: record.available };
+}
+
+function toProductModifierGroupResponse(record: ProductModifierGroupRecord): ProductModifierGroup {
+  return { modifierGroupId: record.modifierGroupId, sortOrder: record.sortOrder };
 }
 
 @Controller("products")
@@ -93,6 +100,44 @@ export class ProductsController {
       actorUserId: tenant.userId,
     });
     return { branchId: request.branchId, available: request.available };
+  }
+
+  @Get(":id/modifier-groups")
+  @RequirePermission("menu.manage")
+  async listModifierGroups(@Param() params: unknown): Promise<ProductModifierGroup[]> {
+    const tenant = requireTenant();
+    const { id } = parseOrBadRequest(ProductIdParamSchema, params);
+    const records = await this.productsService.listModifierGroups(tenant.restaurantId, id);
+    return records.map(toProductModifierGroupResponse);
+  }
+
+  @Put(":id/modifier-groups")
+  @RequirePermission("menu.manage")
+  async attachModifierGroup(@Param() params: unknown, @Body() body: unknown): Promise<ProductModifierGroup> {
+    const tenant = requireTenant();
+    const { id } = parseOrBadRequest(ProductIdParamSchema, params);
+    const request = parseOrBadRequest(AttachModifierGroupSchema, body);
+    await this.productsService.attachModifierGroup({
+      ...request,
+      restaurantId: tenant.restaurantId,
+      productId: id,
+      actorUserId: tenant.userId,
+    });
+    return { modifierGroupId: request.modifierGroupId, sortOrder: request.sortOrder ?? 0 };
+  }
+
+  @Delete(":id/modifier-groups/:modifierGroupId")
+  @RequirePermission("menu.manage")
+  async detachModifierGroup(@Param() params: unknown): Promise<{ detached: true }> {
+    const tenant = requireTenant();
+    const { id, modifierGroupId } = parseOrBadRequest(ModifierGroupParamSchema, params);
+    await this.productsService.detachModifierGroup({
+      restaurantId: tenant.restaurantId,
+      productId: id,
+      modifierGroupId,
+      actorUserId: tenant.userId,
+    });
+    return { detached: true };
   }
 }
 

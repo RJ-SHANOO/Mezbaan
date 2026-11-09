@@ -1,5 +1,5 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { schema, withTenant, type Database } from "@mezbaan/db";
 import { AuditLogService } from "./audit-log.service.js";
 import { DATABASE } from "./db.module.js";
@@ -54,9 +54,30 @@ export interface SetProductBranchAvailabilityParams {
   available: boolean;
 }
 
+export interface ProductModifierGroupRecord {
+  modifierGroupId: string;
+  sortOrder: number;
+}
+
+export interface AttachModifierGroupParams {
+  restaurantId: string;
+  actorUserId: string;
+  productId: string;
+  modifierGroupId: string;
+  sortOrder?: number;
+}
+
+export interface DetachModifierGroupParams {
+  restaurantId: string;
+  actorUserId: string;
+  productId: string;
+  modifierGroupId: string;
+}
+
 const PRODUCT_NOT_FOUND = "Product not found";
 const CATEGORY_NOT_FOUND = "Category not found";
 const BRANCH_NOT_FOUND = "Branch not found";
+const MODIFIER_GROUP_NOT_FOUND = "Modifier group not found";
 
 /**
  * Same CRUD reference pattern as BranchesService (P1-17). One extra concern
@@ -86,7 +107,8 @@ export class ProductsService {
 
   async create(params: CreateProductParams): Promise<ProductRecord> {
     return withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
-      await assertExists(tx, schema.categories, params.categoryId, CATEGORY_NOT_FOUND);
+      const categoryRows = await tx.select({ id: schema.categories.id }).from(schema.categories).where(eq(schema.categories.id, params.categoryId));
+      assertFound(categoryRows.length > 0, CATEGORY_NOT_FOUND);
 
       const rows = await tx
         .insert(schema.products)
@@ -120,7 +142,8 @@ export class ProductsService {
   async update(params: UpdateProductParams): Promise<ProductRecord> {
     return withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
       if (params.categoryId !== undefined) {
-        await assertExists(tx, schema.categories, params.categoryId, CATEGORY_NOT_FOUND);
+        const categoryRows = await tx.select({ id: schema.categories.id }).from(schema.categories).where(eq(schema.categories.id, params.categoryId));
+        assertFound(categoryRows.length > 0, CATEGORY_NOT_FOUND);
       }
 
       const rows = await tx
@@ -160,8 +183,10 @@ export class ProductsService {
    * record a deliberate exception, never to establish the default. */
   async setBranchAvailability(params: SetProductBranchAvailabilityParams): Promise<void> {
     await withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
-      await assertExists(tx, schema.products, params.productId, PRODUCT_NOT_FOUND);
-      await assertExists(tx, schema.branches, params.branchId, BRANCH_NOT_FOUND);
+      const productRows = await tx.select({ id: schema.products.id }).from(schema.products).where(eq(schema.products.id, params.productId));
+      assertFound(productRows.length > 0, PRODUCT_NOT_FOUND);
+      const branchRows = await tx.select({ id: schema.branches.id }).from(schema.branches).where(eq(schema.branches.id, params.branchId));
+      assertFound(branchRows.length > 0, BRANCH_NOT_FOUND);
 
       await tx
         .insert(schema.productBranchAvailability)
@@ -201,14 +226,83 @@ export class ProductsService {
         .where(eq(schema.productBranchAvailability.productId, productId)),
     );
   }
+
+  /** P2-02: idempotent — attaching a group that's already attached just
+   * updates its sortOrder rather than erroring, since there's no meaningful
+   * "duplicate attachment" to reject. */
+  async attachModifierGroup(params: AttachModifierGroupParams): Promise<void> {
+    await withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
+      const productRows = await tx.select({ id: schema.products.id }).from(schema.products).where(eq(schema.products.id, params.productId));
+      assertFound(productRows.length > 0, PRODUCT_NOT_FOUND);
+      const groupRows = await tx
+        .select({ id: schema.modifierGroups.id })
+        .from(schema.modifierGroups)
+        .where(eq(schema.modifierGroups.id, params.modifierGroupId));
+      assertFound(groupRows.length > 0, MODIFIER_GROUP_NOT_FOUND);
+
+      await tx
+        .insert(schema.productModifierGroups)
+        .values({
+          restaurantId: params.restaurantId,
+          productId: params.productId,
+          modifierGroupId: params.modifierGroupId,
+          sortOrder: params.sortOrder ?? 0,
+        })
+        .onConflictDoUpdate({
+          target: [schema.productModifierGroups.productId, schema.productModifierGroups.modifierGroupId],
+          set: { sortOrder: params.sortOrder ?? 0 },
+        });
+
+      await this.auditLogService.record(
+        {
+          restaurantId: params.restaurantId,
+          actorUserId: params.actorUserId,
+          action: "product.modifier_group.attached",
+          targetType: "product",
+          targetId: params.productId,
+          metadata: { modifierGroupId: params.modifierGroupId },
+        },
+        tx,
+      );
+    });
+  }
+
+  async detachModifierGroup(params: DetachModifierGroupParams): Promise<void> {
+    await withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
+      await tx
+        .delete(schema.productModifierGroups)
+        .where(
+          and(
+            eq(schema.productModifierGroups.productId, params.productId),
+            eq(schema.productModifierGroups.modifierGroupId, params.modifierGroupId),
+          ),
+        );
+
+      await this.auditLogService.record(
+        {
+          restaurantId: params.restaurantId,
+          actorUserId: params.actorUserId,
+          action: "product.modifier_group.detached",
+          targetType: "product",
+          targetId: params.productId,
+          metadata: { modifierGroupId: params.modifierGroupId },
+        },
+        tx,
+      );
+    });
+  }
+
+  async listModifierGroups(restaurantId: string, productId: string): Promise<ProductModifierGroupRecord[]> {
+    return withTenant(this.db, { restaurantId }, (tx) =>
+      tx
+        .select({ modifierGroupId: schema.productModifierGroups.modifierGroupId, sortOrder: schema.productModifierGroups.sortOrder })
+        .from(schema.productModifierGroups)
+        .where(eq(schema.productModifierGroups.productId, productId))
+        .orderBy(asc(schema.productModifierGroups.sortOrder)),
+    );
+  }
 }
 
-async function assertExists(
-  tx: Database,
-  table: typeof schema.categories | typeof schema.products | typeof schema.branches,
-  id: string,
-  notFoundMessage: string,
-): Promise<void> {
-  const rows = await tx.select({ id: table.id }).from(table).where(eq(table.id, id));
-  if (rows.length === 0) throw new NotFoundException(notFoundMessage);
+function assertFound(exists: boolean, notFoundMessage: string): void {
+  if (!exists) throw new NotFoundException(notFoundMessage);
 }

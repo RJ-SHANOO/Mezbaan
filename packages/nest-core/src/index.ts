@@ -131,4 +131,25 @@ export {
   type SetProductBranchAvailabilityParams,
 } from "./products.service.js";
 export { ProductsController } from "./products.controller.js";
+export {
+  ProductVariantsService,
+  type ProductVariantRecord,
+  type CreateProductVariantParams,
+  type UpdateProductVariantParams,
+} from "./product-variants.service.js";
+export { ProductVariantsController } from "./product-variants.controller.js";
+export {
+  ModifierGroupsService,
+  type ModifierGroupRecord,
+  type CreateModifierGroupParams,
+  type UpdateModifierGroupParams,
+} from "./modifier-groups.service.js";
+export { ModifierGroupsController } from "./modifier-groups.controller.js";
+export {
+  ModifierOptionsService,
+  type ModifierOptionRecord,
+  type CreateModifierOptionParams,
+  type UpdateModifierOptionParams,
+} from "./modifier-options.service.js";
+export { ModifierOptionsController } from "./modifier-options.controller.js";
 export { CatalogModule } from "./catalog.module.js";

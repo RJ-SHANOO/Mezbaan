@@ -10,10 +10,14 @@ import {
   devices,
   featureFlags,
   managerPins,
+  modifierGroups,
+  modifierOptions,
   outbox,
   passwordResetTokens,
   productBranchAvailability,
+  productModifierGroups,
   products,
+  productVariants,
   restaurants,
   roles,
   sessions,
@@ -570,6 +574,79 @@ describe("categories/products/product_branch_availability — tenant isolation (
     );
 
     const seenByB = await withTenant(db, { restaurantId: restaurantBId }, (tx) => tx.select().from(productBranchAvailability));
+    expect(seenByB).toEqual([]);
+  });
+});
+
+describe("product_variants/modifier_groups/modifier_options/product_modifier_groups — tenant isolation (P2-02)", () => {
+  it("a product variant created under one tenant is never visible to another tenant's session", async () => {
+    const restaurantAId = await createRestaurant("Tenant DDD");
+    const restaurantBId = await createRestaurant("Tenant EEE");
+
+    const productId = await withTenant(db, { restaurantId: restaurantAId }, async (tx) => {
+      const categoryRows = await tx.insert(categories).values({ restaurantId: restaurantAId, name: "Pizzas" }).returning({ id: categories.id });
+      const categoryId = categoryRows[0]?.id;
+      if (!categoryId) throw new Error("fixture: category insert returned no row");
+      const productRows = await tx.insert(products).values({ restaurantId: restaurantAId, categoryId, name: "Margherita" }).returning({ id: products.id });
+      const id = productRows[0]?.id;
+      if (!id) throw new Error("fixture: product insert returned no row");
+      return id;
+    });
+    await withTenant(db, { restaurantId: restaurantAId }, (tx) => tx.insert(productVariants).values({ restaurantId: restaurantAId, productId, name: "Large" }));
+
+    const seenByB = await withTenant(db, { restaurantId: restaurantBId }, (tx) => tx.select().from(productVariants));
+    expect(seenByB).toEqual([]);
+  });
+
+  it("a modifier group created under one tenant is never visible to another tenant's session", async () => {
+    const restaurantAId = await createRestaurant("Tenant FFF");
+    const restaurantBId = await createRestaurant("Tenant GGG");
+
+    await withTenant(db, { restaurantId: restaurantAId }, (tx) => tx.insert(modifierGroups).values({ restaurantId: restaurantAId, name: "Sauce" }));
+
+    const seenByB = await withTenant(db, { restaurantId: restaurantBId }, (tx) => tx.select().from(modifierGroups));
+    expect(seenByB).toEqual([]);
+  });
+
+  it("a modifier option created under one tenant is never visible to another tenant's session", async () => {
+    const restaurantAId = await createRestaurant("Tenant HHH");
+    const restaurantBId = await createRestaurant("Tenant III");
+
+    const modifierGroupId = await withTenant(db, { restaurantId: restaurantAId }, async (tx) => {
+      const rows = await tx.insert(modifierGroups).values({ restaurantId: restaurantAId, name: "Sauce" }).returning({ id: modifierGroups.id });
+      const id = rows[0]?.id;
+      if (!id) throw new Error("fixture: modifier group insert returned no row");
+      return id;
+    });
+    await withTenant(db, { restaurantId: restaurantAId }, (tx) =>
+      tx.insert(modifierOptions).values({ restaurantId: restaurantAId, modifierGroupId, name: "Ketchup" }),
+    );
+
+    const seenByB = await withTenant(db, { restaurantId: restaurantBId }, (tx) => tx.select().from(modifierOptions));
+    expect(seenByB).toEqual([]);
+  });
+
+  it("a product_modifier_groups row created under one tenant is never visible to another tenant's session", async () => {
+    const restaurantAId = await createRestaurant("Tenant JJJ");
+    const restaurantBId = await createRestaurant("Tenant KKK");
+
+    const { productId, modifierGroupId } = await withTenant(db, { restaurantId: restaurantAId }, async (tx) => {
+      const categoryRows = await tx.insert(categories).values({ restaurantId: restaurantAId, name: "Pizzas" }).returning({ id: categories.id });
+      const categoryId = categoryRows[0]?.id;
+      if (!categoryId) throw new Error("fixture: category insert returned no row");
+      const productRows = await tx.insert(products).values({ restaurantId: restaurantAId, categoryId, name: "Margherita" }).returning({ id: products.id });
+      const productId = productRows[0]?.id;
+      if (!productId) throw new Error("fixture: product insert returned no row");
+      const groupRows = await tx.insert(modifierGroups).values({ restaurantId: restaurantAId, name: "Sauce" }).returning({ id: modifierGroups.id });
+      const modifierGroupId = groupRows[0]?.id;
+      if (!modifierGroupId) throw new Error("fixture: modifier group insert returned no row");
+      return { productId, modifierGroupId };
+    });
+    await withTenant(db, { restaurantId: restaurantAId }, (tx) =>
+      tx.insert(productModifierGroups).values({ restaurantId: restaurantAId, productId, modifierGroupId }),
+    );
+
+    const seenByB = await withTenant(db, { restaurantId: restaurantBId }, (tx) => tx.select().from(productModifierGroups));
     expect(seenByB).toEqual([]);
   });
 });

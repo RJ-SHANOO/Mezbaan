@@ -483,6 +483,107 @@ describe("tenant isolation — api-admin HTTP endpoints", () => {
     expect(availabilityByB.statusCode).toBe(404);
   });
 
+  it("a restaurant can create a product variant, a modifier group with options, and attach the group to a product (positive control)", async () => {
+    const tenant = await signup("iso-modifiers-ok");
+
+    const category = await app.inject({ method: "POST", url: "/categories", headers: { authorization: `Bearer ${tenant.accessToken}` }, payload: { name: "Pizzas" } });
+    const categoryId = category.json<{ id: string }>().id;
+    const product = await app.inject({
+      method: "POST",
+      url: "/products",
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+      payload: { categoryId, name: "Margherita" },
+    });
+    const productId = product.json<{ id: string }>().id;
+
+    const variant = await app.inject({
+      method: "POST",
+      url: `/products/${productId}/variants`,
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+      payload: { name: "Large" },
+    });
+    expect(variant.statusCode).toBe(201);
+
+    const group = await app.inject({
+      method: "POST",
+      url: "/modifier-groups",
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+      payload: { name: "Toppings" },
+    });
+    expect(group.statusCode).toBe(201);
+    const groupId = group.json<{ id: string }>().id;
+
+    const option = await app.inject({
+      method: "POST",
+      url: `/modifier-groups/${groupId}/options`,
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+      payload: { name: "Extra Cheese" },
+    });
+    expect(option.statusCode).toBe(201);
+
+    const attach = await app.inject({
+      method: "PUT",
+      url: `/products/${productId}/modifier-groups`,
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+      payload: { modifierGroupId: groupId },
+    });
+    expect(attach.statusCode).toBe(200);
+
+    const listGroups = await app.inject({ method: "GET", url: `/products/${productId}/modifier-groups`, headers: { authorization: `Bearer ${tenant.accessToken}` } });
+    expect(listGroups.json<Array<{ modifierGroupId: string }>>().map((g) => g.modifierGroupId)).toContain(groupId);
+  });
+
+  it("one restaurant's token can never see or touch another restaurant's variants or modifier groups", async () => {
+    const tenantA = await signup("iso-modifiers-a");
+    const tenantB = await signup("iso-modifiers-b");
+
+    const category = await app.inject({ method: "POST", url: "/categories", headers: { authorization: `Bearer ${tenantA.accessToken}` }, payload: { name: "Pizzas" } });
+    const categoryId = category.json<{ id: string }>().id;
+    const product = await app.inject({
+      method: "POST",
+      url: "/products",
+      headers: { authorization: `Bearer ${tenantA.accessToken}` },
+      payload: { categoryId, name: "Margherita" },
+    });
+    const productId = product.json<{ id: string }>().id;
+    const variant = await app.inject({
+      method: "POST",
+      url: `/products/${productId}/variants`,
+      headers: { authorization: `Bearer ${tenantA.accessToken}` },
+      payload: { name: "Large" },
+    });
+    const variantId = variant.json<{ id: string }>().id;
+    const group = await app.inject({ method: "POST", url: "/modifier-groups", headers: { authorization: `Bearer ${tenantA.accessToken}` }, payload: { name: "Toppings" } });
+    const groupId = group.json<{ id: string }>().id;
+
+    const listVariantsByB = await app.inject({ method: "GET", url: `/products/${productId}/variants`, headers: { authorization: `Bearer ${tenantB.accessToken}` } });
+    expect(listVariantsByB.json<unknown[]>()).toEqual([]);
+
+    const updateVariantByB = await app.inject({
+      method: "PATCH",
+      url: `/products/${productId}/variants/${variantId}`,
+      headers: { authorization: `Bearer ${tenantB.accessToken}` },
+      payload: { name: "Hijacked" },
+    });
+    expect(updateVariantByB.statusCode).toBe(404);
+
+    const updateGroupByB = await app.inject({
+      method: "PATCH",
+      url: `/modifier-groups/${groupId}`,
+      headers: { authorization: `Bearer ${tenantB.accessToken}` },
+      payload: { name: "Hijacked" },
+    });
+    expect(updateGroupByB.statusCode).toBe(404);
+
+    const attachByB = await app.inject({
+      method: "PUT",
+      url: `/products/${productId}/modifier-groups`,
+      headers: { authorization: `Bearer ${tenantB.accessToken}` },
+      payload: { modifierGroupId: groupId },
+    });
+    expect(attachByB.statusCode).toBe(404);
+  });
+
   it("an invalid or missing token is rejected by every protected route the same way", async () => {
     const noToken = await app.inject({ method: "POST", url: "/manager-pin", payload: { pin: "1234" } });
     expect(noToken.statusCode).toBe(401);

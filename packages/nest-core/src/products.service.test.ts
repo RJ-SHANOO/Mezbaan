@@ -5,6 +5,7 @@ import { createDb, createPool, schema, withTenant, type Database } from "@mezbaa
 import type { Pool } from "pg";
 import { AuditLogService } from "./audit-log.service.js";
 import { CategoriesService } from "./categories.service.js";
+import { ModifierGroupsService } from "./modifier-groups.service.js";
 import { ProductsService } from "./products.service.js";
 
 const APP_DATABASE_URL =
@@ -14,6 +15,7 @@ let pool: Pool;
 let db: Database;
 let service: ProductsService;
 let categoriesService: CategoriesService;
+let modifierGroupsService: ModifierGroupsService;
 
 beforeAll(() => {
   pool = createPool(APP_DATABASE_URL);
@@ -21,6 +23,7 @@ beforeAll(() => {
   const auditLogService = new AuditLogService(db);
   service = new ProductsService(db, auditLogService);
   categoriesService = new CategoriesService(db, auditLogService);
+  modifierGroupsService = new ModifierGroupsService(db, auditLogService);
 });
 
 afterAll(async () => {
@@ -209,6 +212,72 @@ describe("ProductsService", () => {
 
       await expect(
         service.setBranchAvailability({ restaurantId: tenantB.restaurantId, actorUserId: tenantB.ownerUserId, productId: productA.id, branchId: branchB, available: false }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  describe("modifier groups (P2-02)", () => {
+    it("attaches a modifier group, which then shows up in listModifierGroups, and audits the attach", async () => {
+      const tenant = await createRestaurant("modifiers-attach");
+      const categoryId = await createCategory(tenant.restaurantId, tenant.ownerUserId);
+      const product = await service.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, categoryId, name: "Burger" });
+      const group = await modifierGroupsService.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, name: "Toppings" });
+
+      await service.attachModifierGroup({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, productId: product.id, modifierGroupId: group.id, sortOrder: 1 });
+
+      expect(await service.listModifierGroups(tenant.restaurantId, product.id)).toEqual([{ modifierGroupId: group.id, sortOrder: 1 }]);
+
+      const auditRows = await withTenant(db, { restaurantId: tenant.restaurantId }, (tx) => tx.select().from(schema.auditLogs));
+      expect(auditRows.some((row) => row.action === "product.modifier_group.attached" && row.targetId === product.id)).toBe(true);
+    });
+
+    it("attaching the same group again updates its sortOrder instead of creating a duplicate", async () => {
+      const tenant = await createRestaurant("modifiers-reattach");
+      const categoryId = await createCategory(tenant.restaurantId, tenant.ownerUserId);
+      const product = await service.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, categoryId, name: "Burger" });
+      const group = await modifierGroupsService.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, name: "Toppings" });
+
+      await service.attachModifierGroup({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, productId: product.id, modifierGroupId: group.id, sortOrder: 1 });
+      await service.attachModifierGroup({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, productId: product.id, modifierGroupId: group.id, sortOrder: 2 });
+
+      expect(await service.listModifierGroups(tenant.restaurantId, product.id)).toEqual([{ modifierGroupId: group.id, sortOrder: 2 }]);
+    });
+
+    it("detaches a modifier group and audits it", async () => {
+      const tenant = await createRestaurant("modifiers-detach");
+      const categoryId = await createCategory(tenant.restaurantId, tenant.ownerUserId);
+      const product = await service.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, categoryId, name: "Burger" });
+      const group = await modifierGroupsService.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, name: "Toppings" });
+      await service.attachModifierGroup({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, productId: product.id, modifierGroupId: group.id });
+
+      await service.detachModifierGroup({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, productId: product.id, modifierGroupId: group.id });
+
+      expect(await service.listModifierGroups(tenant.restaurantId, product.id)).toEqual([]);
+      const auditRows = await withTenant(db, { restaurantId: tenant.restaurantId }, (tx) => tx.select().from(schema.auditLogs));
+      expect(auditRows.some((row) => row.action === "product.modifier_group.detached" && row.targetId === product.id)).toBe(true);
+    });
+
+    it("rejects attaching a modifier group that belongs to a different tenant", async () => {
+      const tenantA = await createRestaurant("modifiers-cross-group-a");
+      const tenantB = await createRestaurant("modifiers-cross-group-b");
+      const categoryA = await createCategory(tenantA.restaurantId, tenantA.ownerUserId);
+      const product = await service.create({ restaurantId: tenantA.restaurantId, actorUserId: tenantA.ownerUserId, categoryId: categoryA, name: "Burger" });
+      const groupB = await modifierGroupsService.create({ restaurantId: tenantB.restaurantId, actorUserId: tenantB.ownerUserId, name: "B's Group" });
+
+      await expect(
+        service.attachModifierGroup({ restaurantId: tenantA.restaurantId, actorUserId: tenantA.ownerUserId, productId: product.id, modifierGroupId: groupB.id }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it("rejects attaching to a product that belongs to a different tenant", async () => {
+      const tenantA = await createRestaurant("modifiers-cross-product-a");
+      const tenantB = await createRestaurant("modifiers-cross-product-b");
+      const categoryA = await createCategory(tenantA.restaurantId, tenantA.ownerUserId);
+      const productA = await service.create({ restaurantId: tenantA.restaurantId, actorUserId: tenantA.ownerUserId, categoryId: categoryA, name: "Burger" });
+      const groupB = await modifierGroupsService.create({ restaurantId: tenantB.restaurantId, actorUserId: tenantB.ownerUserId, name: "B's Group" });
+
+      await expect(
+        service.attachModifierGroup({ restaurantId: tenantB.restaurantId, actorUserId: tenantB.ownerUserId, productId: productA.id, modifierGroupId: groupB.id }),
       ).rejects.toBeInstanceOf(NotFoundException);
     });
   });
