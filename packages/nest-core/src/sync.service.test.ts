@@ -93,6 +93,24 @@ describe("SyncService", () => {
     expect(stored.filter((s) => s.idempotencyKey === "op-exact")).toHaveLength(1);
   });
 
+  it("P1-31: two concurrent submissions of the same idempotency key race safely and never produce a duplicate row", async () => {
+    const fixture = await createFixture("sync-concurrent-dup");
+    const operation = op("op-race");
+
+    // Both resolve concurrently rather than one awaited after the other — this is
+    // what actually exercises the unique-constraint race (two terminals' retries
+    // overlapping on the network), not just sequential idempotency.
+    const results = await Promise.all([
+      service.receiveBatch({ ...fixture, operations: [{ ...operation, id: randomUUID() }] }),
+      service.receiveBatch({ ...fixture, operations: [{ ...operation, id: randomUUID() }] }),
+    ]);
+
+    expect(results[0]).toEqual([{ id: results[0]![0]!.id, status: "accepted" }]);
+    expect(results[1]).toEqual([{ id: results[1]![0]!.id, status: "accepted" }]);
+    const stored = await withTenant(db, { restaurantId: fixture.restaurantId }, (tx) => tx.select().from(schema.syncOperations));
+    expect(stored.filter((s) => s.idempotencyKey === "op-race")).toHaveLength(1);
+  });
+
   it("an operation recorded under one restaurant is never visible to another's reads", async () => {
     const a = await createFixture("sync-iso-a");
     const b = await createFixture("sync-iso-b");

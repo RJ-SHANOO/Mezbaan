@@ -342,6 +342,46 @@ mod tests {
         assert_eq!(transport.calls.borrow().len(), 3);
     }
 
+    /// P1-31: a single scenario combining three of the fault categories the exit gate
+    /// requires — a large backlog (standing in for "offline several days"), a lost
+    /// connection partway through (exhausts retries on one batch, standing in for a
+    /// crash mid-sync), and resuming afterward. Proves every operation syncs exactly
+    /// once: nothing already-synced is resent, and nothing after the failure point is
+    /// lost.
+    #[test]
+    fn survives_a_lost_connection_partway_through_a_large_offline_backlog() {
+        let mut conn = test_conn();
+        let total_ops = BATCH_SIZE * 3 + 7; // 4 batches: 50, 50, 50, 7
+        let ids: Vec<String> = (0..total_ops).map(|i| format!("op-{i}")).collect();
+        for id in &ids {
+            seed_operation(&conn, id);
+        }
+        let batch = |range: std::ops::Range<usize>| -> Vec<&str> { ids[range].iter().map(String::as_str).collect() };
+
+        // Cycle 1: the first batch goes through, then the connection is lost for good
+        // on the second — the cycle errors out before ever touching batches 3 and 4.
+        let mut first_cycle_responses = vec![Ok(accepted(&batch(0..BATCH_SIZE)))];
+        first_cycle_responses.extend((0..MAX_ATTEMPTS).map(|_| Err(SyncError::Transport("connection lost".to_string()))));
+        let first_cycle_transport = MockTransport::queue(first_cycle_responses);
+        let result = run_sync_cycle_with_sleep(&mut conn, &first_cycle_transport, no_sleep);
+        assert!(result.is_err(), "the cycle should stop at the lost-connection batch, not silently skip it");
+        assert_eq!(operation_log::list_unsynced(&conn).unwrap().len(), total_ops - BATCH_SIZE);
+
+        // Cycle 2 (after "restart"): a fresh transport recovers and drains the rest —
+        // batch 1's operations are never sent again.
+        let second_cycle_transport = MockTransport::queue(vec![
+            Ok(accepted(&batch(BATCH_SIZE..BATCH_SIZE * 2))),
+            Ok(accepted(&batch(BATCH_SIZE * 2..BATCH_SIZE * 3))),
+            Ok(accepted(&batch(BATCH_SIZE * 3..total_ops))),
+        ]);
+        let summary = run_sync_cycle_with_sleep(&mut conn, &second_cycle_transport, no_sleep).unwrap();
+
+        assert_eq!(summary.synced_count as usize, total_ops - BATCH_SIZE);
+        assert_eq!(operation_log::list_unsynced(&conn).unwrap().len(), 0);
+        let resent_batch_one = second_cycle_transport.calls.borrow().iter().any(|call| call.iter().any(|op| op.id == "op-0"));
+        assert!(!resent_batch_one, "an already-synced operation must never be sent again");
+    }
+
     #[test]
     fn exhausting_every_retry_leaves_the_operation_unsynced_for_the_next_cycle() {
         let mut conn = test_conn();
