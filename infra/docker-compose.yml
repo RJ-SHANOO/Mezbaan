@@ -8,6 +8,21 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-mezbaan}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mezbaan_dev_password}
       POSTGRES_DB: ${POSTGRES_DB:-mezbaan}
+    # P1-32: pg_stat_statements must be loaded via shared_preload_libraries before
+    # `CREATE EXTENSION pg_stat_statements` (run by migrate.ts after migrations) can
+    # succeed — a config-file change wouldn't take effect without a restart anyway, so
+    # setting it here on the container command is the simplest way to guarantee it's
+    # active before migrations ever run. log_min_duration_statement is the slow-query
+    # logging half of this task: anything slower than the threshold is logged by
+    # Postgres itself, visible via `docker compose logs postgres`.
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_preload_libraries=pg_stat_statements"
+      - "-c"
+      - "pg_stat_statements.track=all"
+      - "-c"
+      - "log_min_duration_statement=${SLOW_QUERY_LOG_MS:-200}"
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
@@ -17,6 +32,55 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  # Exposes pg_stat_database (connections, commit/rollback rate, cache hit ratio) and,
+  # via the custom query below, the slowest statements from pg_stat_statements — the
+  # two sources the performance dashboard reads from.
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER:-mezbaan}:${POSTGRES_PASSWORD:-mezbaan_dev_password}@postgres:5432/${POSTGRES_DB:-mezbaan}?sslmode=disable"
+    command:
+      - "--extend.query-path=/etc/postgres_exporter/queries.yaml"
+    volumes:
+      - ./postgres-exporter-queries.yaml:/etc/postgres_exporter/queries.yaml:ro
+    ports:
+      - "${POSTGRES_EXPORTER_PORT:-9187}:9187"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Scrapes every api-*/worker process's own /metrics (P1-04's http_request_duration_seconds
+  # etc. — those run on the host, not in Compose, hence host.docker.internal in
+  # prometheus.yml) plus postgres-exporter.
+  prometheus:
+    image: prom/prometheus:latest
+    restart: unless-stopped
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    depends_on:
+      - postgres-exporter
+
+  # The performance dashboard itself. Datasource and dashboard JSON are both
+  # auto-provisioned from infra/grafana/ — no manual click-through setup needed.
+  grafana:
+    image: grafana/grafana-oss:latest
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-mezbaan_dev_password}
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    depends_on:
+      - prometheus
 
   pgbouncer:
     image: edoburu/pgbouncer:latest
@@ -93,3 +157,5 @@ volumes:
   valkey_data:
   garage_meta:
   garage_data:
+  prometheus_data:
+  grafana_data:

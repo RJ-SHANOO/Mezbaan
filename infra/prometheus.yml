@@ -1,0 +1,21 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  # api-pos, api-admin, api-public, api-reports, worker (P1-05/P1-04) run on the host,
+  # not in Compose, hence host.docker.internal rather than a service name. Each
+  # process's own `service` default label (set by ensureDefaultMetrics) is what tells
+  # these apart in Prometheus, not the scrape job/instance.
+  - job_name: "mezbaan-services"
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - "host.docker.internal:3001" # api-pos
+          - "host.docker.internal:3002" # api-admin
+          - "host.docker.internal:3003" # api-public
+          - "host.docker.internal:3004" # api-reports
+          - "host.docker.internal:3005" # worker
+
+  - job_name: "postgres"
+    static_configs:
+      - targets: ["postgres-exporter:9187"]

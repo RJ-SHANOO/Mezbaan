@@ -16,6 +16,13 @@ async function main(): Promise<void> {
   await migrate(db, { migrationsFolder: join(__dirname, "..", "drizzle") });
   console.log("Schema migrations applied");
 
+  // P1-32: requires pg_stat_statements to already be loaded via
+  // shared_preload_libraries (infra/docker-compose.yml's postgres command) — a
+  // config-only change needs a server restart to take effect, so this can't fix a
+  // missing preload itself, only register the extension once it's active.
+  await pool.query("CREATE EXTENSION IF NOT EXISTS pg_stat_statements");
+  console.log("pg_stat_statements extension ensured");
+
   await pool.query(APP_ROLE_SQL);
   console.log("Application role ensured");
 

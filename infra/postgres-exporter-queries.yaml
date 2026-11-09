@@ -1,0 +1,29 @@
+# P1-32: surfaces the slowest statements from pg_stat_statements as Prometheus
+# metrics, so "slow queries" shows up on the performance dashboard, not just in
+# ad-hoc `SELECT * FROM pg_stat_statements` queries. postgres_exporter's default
+# collectors (pg_stat_database, pg_up, etc.) don't need anything here — only the
+# pg_stat_statements extension needs a custom query, since it's not a view the
+# exporter auto-detects.
+pg_stat_statements_top:
+  query: |
+    SELECT
+      LEFT(query, 100) AS query,
+      calls,
+      mean_exec_time,
+      total_exec_time
+    FROM pg_stat_statements
+    ORDER BY mean_exec_time DESC
+    LIMIT 10
+  metrics:
+    - query:
+        usage: "LABEL"
+        description: "Truncated statement text"
+    - calls:
+        usage: "COUNTER"
+        description: "Number of times this statement has been executed"
+    - mean_exec_time:
+        usage: "GAUGE"
+        description: "Mean execution time in milliseconds"
+    - total_exec_time:
+        usage: "GAUGE"
+        description: "Total execution time in milliseconds"
