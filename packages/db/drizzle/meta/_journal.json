@@ -71,6 +71,13 @@
       "when": 1794172970360,
       "tag": "0009_bitter_colleen_wing",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794209930916,
+      "tag": "0010_long_human_torch",
+      "breakpoints": true
     }
   ]
 }

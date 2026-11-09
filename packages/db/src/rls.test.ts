@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import type { Pool } from "pg";
 import { createDb, createPool, withTenant, type Database } from "./client.js";
-import { auditLogs, branches, devices, featureFlags, managerPins, passwordResetTokens, restaurants, roles, sessions, syncOperations, users } from "./schema/index.js";
+import { auditLogs, branches, devices, featureFlags, managerPins, outbox, passwordResetTokens, restaurants, roles, sessions, syncOperations, users } from "./schema/index.js";
 
 /**
  * Connects as the restricted `mezbaan_app` role (see app-role.ts) — NOT the migration
@@ -412,5 +412,59 @@ describe("sync_operations — tenant isolation (P1-26)", () => {
         }),
       ),
     ).rejects.toThrow();
+  });
+});
+
+describe("outbox — tenant isolation (P1-30)", () => {
+  it("an outbox row is invisible to another tenant's session", async () => {
+    const restaurantAId = await createRestaurant("Tenant NN");
+    const restaurantBId = await createRestaurant("Tenant OO");
+
+    await withTenant(db, { restaurantId: restaurantAId }, (tx) =>
+      tx.insert(outbox).values({
+        restaurantId: restaurantAId,
+        aggregateType: "widget",
+        aggregateId: "w1",
+        eventType: "widget.created",
+        payload: {},
+      }),
+    );
+
+    const seenByB = await withTenant(db, { restaurantId: restaurantBId }, (tx) => tx.select().from(outbox));
+    expect(seenByB).toEqual([]);
+  });
+
+  it("rejects inserting an outbox row for a different restaurant than the session's own tenant", async () => {
+    const restaurantAId = await createRestaurant("Tenant PP");
+    const restaurantBId = await createRestaurant("Tenant QQ");
+
+    await expect(
+      withTenant(db, { restaurantId: restaurantAId }, (tx) =>
+        tx.insert(outbox).values({
+          restaurantId: restaurantBId,
+          aggregateType: "widget",
+          aggregateId: "w2",
+          eventType: "widget.created",
+          payload: {},
+        }),
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("a super-admin session (the outbox worker's own context) sees every tenant's rows", async () => {
+    const restaurantAId = await createRestaurant("Tenant RR");
+    const restaurantBId = await createRestaurant("Tenant SS");
+
+    await withTenant(db, { restaurantId: restaurantAId }, (tx) =>
+      tx.insert(outbox).values({ restaurantId: restaurantAId, aggregateType: "widget", aggregateId: "w3", eventType: "widget.created", payload: {} }),
+    );
+    await withTenant(db, { restaurantId: restaurantBId }, (tx) =>
+      tx.insert(outbox).values({ restaurantId: restaurantBId, aggregateType: "widget", aggregateId: "w4", eventType: "widget.created", payload: {} }),
+    );
+
+    const seenBySuperAdmin = await withTenant(db, { restaurantId: null, isSuperAdmin: true }, (tx) =>
+      tx.select().from(outbox).where(eq(outbox.aggregateId, "w3")),
+    );
+    expect(seenBySuperAdmin).toHaveLength(1);
   });
 });

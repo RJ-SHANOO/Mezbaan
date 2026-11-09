@@ -110,3 +110,13 @@ export {
   verifyBytes,
   type SnapshotKeyPair,
 } from "./snapshot-signing.js";
+export { OutboxService, type OutboxEntry } from "./outbox.service.js";
+export {
+  OutboxWorkerService,
+  OUTBOX_WORKER_OPTIONS,
+  type OutboxWorkerOptions,
+  type OutboxHandler,
+  type OutboxRecord,
+  type OutboxBatchSummary,
+} from "./outbox-worker.service.js";
+export { OutboxModule } from "./outbox.module.js";
