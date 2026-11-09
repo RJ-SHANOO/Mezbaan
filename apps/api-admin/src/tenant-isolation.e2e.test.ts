@@ -403,6 +403,86 @@ describe("tenant isolation — api-admin HTTP endpoints", () => {
     expect(ownListA.json<Array<{ moduleKey: string }>>().map((f) => f.moduleKey)).not.toContain("reports");
   });
 
+  it("a restaurant can create a category, a product under it, and set branch availability (positive control)", async () => {
+    const tenant = await signup("iso-catalog-ok");
+
+    const category = await app.inject({
+      method: "POST",
+      url: "/categories",
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+      payload: { name: "Burgers" },
+    });
+    expect(category.statusCode).toBe(201);
+    const categoryId = category.json<{ id: string }>().id;
+
+    const product = await app.inject({
+      method: "POST",
+      url: "/products",
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+      payload: { categoryId, name: "Cheeseburger", sku: "BRG-001" },
+    });
+    expect(product.statusCode).toBe(201);
+    const productId = product.json<{ id: string }>().id;
+
+    const availability = await app.inject({
+      method: "PUT",
+      url: `/products/${productId}/availability`,
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+      payload: { branchId: tenant.branchId, available: false },
+    });
+    expect(availability.statusCode).toBe(200);
+
+    const list = await app.inject({ method: "GET", url: "/products", headers: { authorization: `Bearer ${tenant.accessToken}` } });
+    expect(list.json<Array<{ id: string }>>().map((p) => p.id)).toContain(productId);
+  });
+
+  it("one restaurant's token can never see, update, or set availability on another restaurant's category/product", async () => {
+    const tenantA = await signup("iso-catalog-a");
+    const tenantB = await signup("iso-catalog-b");
+
+    const category = await app.inject({
+      method: "POST",
+      url: "/categories",
+      headers: { authorization: `Bearer ${tenantA.accessToken}` },
+      payload: { name: "A's Category" },
+    });
+    const categoryId = category.json<{ id: string }>().id;
+    const product = await app.inject({
+      method: "POST",
+      url: "/products",
+      headers: { authorization: `Bearer ${tenantA.accessToken}` },
+      payload: { categoryId, name: "A's Product" },
+    });
+    const productId = product.json<{ id: string }>().id;
+
+    const listByB = await app.inject({ method: "GET", url: "/products", headers: { authorization: `Bearer ${tenantB.accessToken}` } });
+    expect(listByB.json<Array<{ id: string }>>()).toEqual([]);
+
+    const updateByB = await app.inject({
+      method: "PATCH",
+      url: `/products/${productId}`,
+      headers: { authorization: `Bearer ${tenantB.accessToken}` },
+      payload: { name: "Hijacked" },
+    });
+    expect(updateByB.statusCode).toBe(404);
+
+    const categoryUpdateByB = await app.inject({
+      method: "PATCH",
+      url: `/categories/${categoryId}`,
+      headers: { authorization: `Bearer ${tenantB.accessToken}` },
+      payload: { name: "Hijacked" },
+    });
+    expect(categoryUpdateByB.statusCode).toBe(404);
+
+    const availabilityByB = await app.inject({
+      method: "PUT",
+      url: `/products/${productId}/availability`,
+      headers: { authorization: `Bearer ${tenantB.accessToken}` },
+      payload: { branchId: tenantB.branchId, available: false },
+    });
+    expect(availabilityByB.statusCode).toBe(404);
+  });
+
   it("an invalid or missing token is rejected by every protected route the same way", async () => {
     const noToken = await app.inject({ method: "POST", url: "/manager-pin", payload: { pin: "1234" } });
     expect(noToken.statusCode).toBe(401);

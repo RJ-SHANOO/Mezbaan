@@ -18,6 +18,7 @@ export const PERMISSION_SEED = [
   { key: "billing.refund.approve", description: "Approve a refund" },
   { key: "reports.view", description: "View sales and inventory reports" },
   { key: "settings.manage", description: "Manage restaurant/branch settings" },
+  { key: "menu.manage", description: "Manage categories, products and branch availability" },
 ] as const;
 
 // Which seeded permissions each role gets by default. Kitchen staff gets none of these —
@@ -26,7 +27,7 @@ export const PERMISSION_SEED = [
 export const ROLE_PERMISSIONS: Readonly<Record<string, readonly string[]>> = {
   super_admin: PERMISSION_SEED.map((p) => p.key),
   owner: PERMISSION_SEED.map((p) => p.key),
-  branch_manager: ["pos.sell", "pos.void.approve", "inventory.adjust", "reports.view"],
+  branch_manager: ["pos.sell", "pos.void.approve", "inventory.adjust", "reports.view", "menu.manage"],
   cashier: ["pos.sell"],
   kitchen_staff: [],
 };

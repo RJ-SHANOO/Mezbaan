@@ -85,6 +85,13 @@
       "when": 1794213019371,
       "tag": "0011_perpetual_fantastic_four",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1794220392645,
+      "tag": "0012_milky_bishop",
+      "breakpoints": true
     }
   ]
 }

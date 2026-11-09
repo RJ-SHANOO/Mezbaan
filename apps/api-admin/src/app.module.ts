@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import {
   AuthModule,
   BranchesModule,
+  CatalogModule,
   DbModule,
   DEV_JWT_SECRET,
   DevicesAdminModule,
@@ -25,6 +26,7 @@ const DEFAULT_APP_DATABASE_URL = "postgres://mezbaan_app:mezbaan_app_dev_passwor
     UserInvitationModule.forRoot(),
     DevicesAdminModule.forRoot(),
     FeatureFlagsModule.forRoot(),
+    CatalogModule.forRoot(),
   ],
   controllers: [HealthController, MetricsController],
 })

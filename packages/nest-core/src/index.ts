@@ -120,3 +120,15 @@ export {
   type OutboxBatchSummary,
 } from "./outbox-worker.service.js";
 export { OutboxModule } from "./outbox.module.js";
+export { CategoriesService, type CategoryRecord, type CreateCategoryParams, type UpdateCategoryParams } from "./categories.service.js";
+export { CategoriesController } from "./categories.controller.js";
+export {
+  ProductsService,
+  type ProductRecord,
+  type CreateProductParams,
+  type UpdateProductParams,
+  type ProductBranchAvailabilityRecord,
+  type SetProductBranchAvailabilityParams,
+} from "./products.service.js";
+export { ProductsController } from "./products.controller.js";
+export { CatalogModule } from "./catalog.module.js";

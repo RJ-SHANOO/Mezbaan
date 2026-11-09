@@ -14,3 +14,6 @@ export { appReleases } from "./app-releases.js";
 export { featureFlags } from "./feature-flags.js";
 export { syncOperations } from "./sync-operations.js";
 export { outbox } from "./outbox.js";
+export { categories } from "./categories.js";
+export { products } from "./products.js";
+export { productBranchAvailability } from "./product-branch-availability.js";

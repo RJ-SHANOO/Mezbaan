@@ -84,3 +84,21 @@ export {
   SnapshotPublicKeyResponseSchema,
   type SnapshotPublicKeyResponse,
 } from "./sync-snapshot.js";
+export {
+  CreateCategorySchema,
+  type CreateCategory,
+  UpdateCategorySchema,
+  type UpdateCategory,
+  CategorySchema,
+  type Category,
+  CreateProductSchema,
+  type CreateProduct,
+  UpdateProductSchema,
+  type UpdateProduct,
+  ProductSchema,
+  type Product,
+  SetProductBranchAvailabilitySchema,
+  type SetProductBranchAvailability,
+  ProductBranchAvailabilitySchema,
+  type ProductBranchAvailability,
+} from "./catalog.js";

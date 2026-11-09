@@ -3,7 +3,23 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import type { Pool } from "pg";
 import { createDb, createPool, withTenant, type Database } from "./client.js";
-import { auditLogs, branches, devices, featureFlags, managerPins, outbox, passwordResetTokens, restaurants, roles, sessions, syncOperations, users } from "./schema/index.js";
+import {
+  auditLogs,
+  branches,
+  categories,
+  devices,
+  featureFlags,
+  managerPins,
+  outbox,
+  passwordResetTokens,
+  productBranchAvailability,
+  products,
+  restaurants,
+  roles,
+  sessions,
+  syncOperations,
+  users,
+} from "./schema/index.js";
 
 /**
  * Connects as the restricted `mezbaan_app` role (see app-role.ts) — NOT the migration
@@ -471,5 +487,89 @@ describe("outbox — tenant isolation (P1-30)", () => {
       tx.select().from(outbox).where(eq(outbox.aggregateId, aggregateId)),
     );
     expect(seenBySuperAdmin).toHaveLength(1);
+  });
+});
+
+describe("categories/products/product_branch_availability — tenant isolation (P2-01)", () => {
+  it("a category created under one tenant is never visible to another tenant's session", async () => {
+    const restaurantAId = await createRestaurant("Tenant TT");
+    const restaurantBId = await createRestaurant("Tenant UU");
+
+    await withTenant(db, { restaurantId: restaurantAId }, (tx) => tx.insert(categories).values({ restaurantId: restaurantAId, name: "Burgers" }));
+
+    const seenByB = await withTenant(db, { restaurantId: restaurantBId }, (tx) => tx.select().from(categories));
+    expect(seenByB).toEqual([]);
+  });
+
+  it("rejects inserting a category for a different restaurant than the session's own tenant", async () => {
+    const restaurantAId = await createRestaurant("Tenant VV");
+    const restaurantBId = await createRestaurant("Tenant WW");
+
+    await expect(
+      withTenant(db, { restaurantId: restaurantAId }, (tx) => tx.insert(categories).values({ restaurantId: restaurantBId, name: "Hijacked" })),
+    ).rejects.toThrow();
+  });
+
+  it("a product created under one tenant is never visible to another tenant's session", async () => {
+    const restaurantAId = await createRestaurant("Tenant XX");
+    const restaurantBId = await createRestaurant("Tenant YY");
+
+    const categoryId = await withTenant(db, { restaurantId: restaurantAId }, async (tx) => {
+      const rows = await tx.insert(categories).values({ restaurantId: restaurantAId, name: "Burgers" }).returning({ id: categories.id });
+      const id = rows[0]?.id;
+      if (!id) throw new Error("fixture: category insert returned no row");
+      return id;
+    });
+    await withTenant(db, { restaurantId: restaurantAId }, (tx) =>
+      tx.insert(products).values({ restaurantId: restaurantAId, categoryId, name: "Cheeseburger" }),
+    );
+
+    const seenByB = await withTenant(db, { restaurantId: restaurantBId }, (tx) => tx.select().from(products));
+    expect(seenByB).toEqual([]);
+  });
+
+  it("rejects inserting a product for a different restaurant than the session's own tenant", async () => {
+    const restaurantAId = await createRestaurant("Tenant ZZ");
+    const restaurantBId = await createRestaurant("Tenant AAA");
+
+    const categoryIdB = await withTenant(db, { restaurantId: restaurantBId }, async (tx) => {
+      const rows = await tx.insert(categories).values({ restaurantId: restaurantBId, name: "Burgers" }).returning({ id: categories.id });
+      const id = rows[0]?.id;
+      if (!id) throw new Error("fixture: category insert returned no row");
+      return id;
+    });
+
+    await expect(
+      withTenant(db, { restaurantId: restaurantAId }, (tx) =>
+        tx.insert(products).values({ restaurantId: restaurantBId, categoryId: categoryIdB, name: "Hijacked" }),
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("a product_branch_availability row created under one tenant is never visible to another tenant's session", async () => {
+    const restaurantAId = await createRestaurant("Tenant BBB");
+    const restaurantBId = await createRestaurant("Tenant CCC");
+
+    const { categoryId, branchId } = await withTenant(db, { restaurantId: restaurantAId }, async (tx) => {
+      const categoryRows = await tx.insert(categories).values({ restaurantId: restaurantAId, name: "Burgers" }).returning({ id: categories.id });
+      const categoryId = categoryRows[0]?.id;
+      if (!categoryId) throw new Error("fixture: category insert returned no row");
+      const branchRows = await tx.insert(branches).values({ restaurantId: restaurantAId, name: "Main", timezone: "Asia/Karachi" }).returning({ id: branches.id });
+      const branchId = branchRows[0]?.id;
+      if (!branchId) throw new Error("fixture: branch insert returned no row");
+      return { categoryId, branchId };
+    });
+    const productId = await withTenant(db, { restaurantId: restaurantAId }, async (tx) => {
+      const rows = await tx.insert(products).values({ restaurantId: restaurantAId, categoryId, name: "Cheeseburger" }).returning({ id: products.id });
+      const id = rows[0]?.id;
+      if (!id) throw new Error("fixture: product insert returned no row");
+      return id;
+    });
+    await withTenant(db, { restaurantId: restaurantAId }, (tx) =>
+      tx.insert(productBranchAvailability).values({ restaurantId: restaurantAId, productId, branchId, available: false }),
+    );
+
+    const seenByB = await withTenant(db, { restaurantId: restaurantBId }, (tx) => tx.select().from(productBranchAvailability));
+    expect(seenByB).toEqual([]);
   });
 });
