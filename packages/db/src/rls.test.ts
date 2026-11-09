@@ -454,16 +454,21 @@ describe("outbox — tenant isolation (P1-30)", () => {
   it("a super-admin session (the outbox worker's own context) sees every tenant's rows", async () => {
     const restaurantAId = await createRestaurant("Tenant RR");
     const restaurantBId = await createRestaurant("Tenant SS");
+    // Unique per run — a hardcoded literal here would accumulate extra matching
+    // rows every time this suite reruns against the same persistent local dev
+    // database (CI always starts from a fresh one, so this only ever bit local
+    // iteration, but it's still the wrong thing to rely on).
+    const aggregateId = randomUUID();
 
     await withTenant(db, { restaurantId: restaurantAId }, (tx) =>
-      tx.insert(outbox).values({ restaurantId: restaurantAId, aggregateType: "widget", aggregateId: "w3", eventType: "widget.created", payload: {} }),
+      tx.insert(outbox).values({ restaurantId: restaurantAId, aggregateType: "widget", aggregateId, eventType: "widget.created", payload: {} }),
     );
     await withTenant(db, { restaurantId: restaurantBId }, (tx) =>
-      tx.insert(outbox).values({ restaurantId: restaurantBId, aggregateType: "widget", aggregateId: "w4", eventType: "widget.created", payload: {} }),
+      tx.insert(outbox).values({ restaurantId: restaurantBId, aggregateType: "widget", aggregateId: randomUUID(), eventType: "widget.created", payload: {} }),
     );
 
     const seenBySuperAdmin = await withTenant(db, { restaurantId: null, isSuperAdmin: true }, (tx) =>
-      tx.select().from(outbox).where(eq(outbox.aggregateId, "w3")),
+      tx.select().from(outbox).where(eq(outbox.aggregateId, aggregateId)),
     );
     expect(seenBySuperAdmin).toHaveLength(1);
   });

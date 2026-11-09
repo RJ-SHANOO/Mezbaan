@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { integer, pgPolicy, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { index, integer, pgPolicy, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { branches } from "./branches.js";
 import { restaurants } from "./restaurants.js";
 import { tenantMatch } from "./rls.js";
@@ -41,6 +41,12 @@ export const devices = pgTable(
   },
   (table) => [
     uniqueIndex("devices_branch_terminal_number_idx").on(table.branchId, table.terminalNumber),
+    // P1-33: validateDeviceToken() (device.service.ts) runs this lookup on every
+    // single device-authenticated request — without an index it's a full table
+    // scan per request, which is exactly the kind of regression the query-plan
+    // checks in query-plan.test.ts are meant to catch before it reaches production.
+    index("devices_token_hash_idx").on(table.tokenHash),
+    index("devices_pairing_code_hash_idx").on(table.pairingCodeHash),
     pgPolicy("devices_tenant_isolation", {
       for: "all",
       using: tenantMatch,
