@@ -32,6 +32,7 @@ describe("DeviceSchema", () => {
       branchId: "22222222-2222-7222-8222-222222222222",
       label: "Front Counter",
       deviceType: "pos_terminal",
+      terminalNumber: 1,
       status: "revoked",
       lastSeenAt: null,
       createdAt: new Date().toISOString(),

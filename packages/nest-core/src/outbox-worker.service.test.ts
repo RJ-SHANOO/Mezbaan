@@ -68,8 +68,14 @@ async function readRow(id: string): Promise<typeof schema.outbox.$inferSelect> {
   return row;
 }
 
+// A generous batch size so this suite's specific seeded row is reliably included in
+// one claim even while outbox.service.test.ts (a separate file, running in its own
+// parallel vitest worker) is concurrently inserting its own rows into this same
+// shared outbox table — claimBatch scans every tenant by design (P1-30), so these
+// tests can never assume they own the whole table. Assertions below are written
+// per-row for the same reason: a seeded row's own end state, never a global count.
 function worker(handlers: Record<string, OutboxHandler> = {}): OutboxWorkerService {
-  return new OutboxWorkerService(db, { handlers, autoStart: false });
+  return new OutboxWorkerService(db, { handlers, autoStart: false, batchSize: 500 });
 }
 
 describe("OutboxWorkerService.processBatch()", () => {
@@ -78,12 +84,9 @@ describe("OutboxWorkerService.processBatch()", () => {
     const id = await seedOutboxRow(restaurantId, "widget.created");
 
     const seen: OutboxRecord[] = [];
-    const summary = await worker({ "widget.created": async (record) => void seen.push(record) }).processBatch();
+    await worker({ "widget.created": async (record) => void seen.push(record) }).processBatch();
 
-    expect(summary).toEqual({ claimed: 1, succeeded: 1, retried: 0, deadLettered: 0 });
-    expect(seen).toHaveLength(1);
-    expect(seen[0]?.id).toBe(id);
-
+    expect(seen.some((record) => record.id === id)).toBe(true);
     const row = await readRow(id);
     expect(row.status).toBe("processed");
     expect(row.processedAt).not.toBeNull();
@@ -104,20 +107,20 @@ describe("OutboxWorkerService.processBatch()", () => {
     const restaurantId = await createRestaurant("outbox-worker-not-due");
     const id = await seedOutboxRow(restaurantId, "widget.created", { availableAt: new Date(Date.now() + 60_000) });
 
-    const summary = await worker({ "widget.created": async () => {} }).processBatch();
+    await worker({ "widget.created": async () => {} }).processBatch();
 
-    expect(summary.claimed).toBe(0);
     const row = await readRow(id);
     expect(row.status).toBe("pending");
   });
 
   it("never reclaims a row that's already in 'processing' (a concurrent worker's claim)", async () => {
     const restaurantId = await createRestaurant("outbox-worker-already-claimed");
-    await seedOutboxRow(restaurantId, "widget.created", { status: "processing" });
+    const id = await seedOutboxRow(restaurantId, "widget.created", { status: "processing" });
 
-    const summary = await worker({ "widget.created": async () => {} }).processBatch();
+    await worker({ "widget.created": async () => {} }).processBatch();
 
-    expect(summary.claimed).toBe(0);
+    const row = await readRow(id);
+    expect(row.status).toBe("processing");
   });
 
   it("retries a failed handler with backoff instead of dead-lettering immediately", async () => {
@@ -125,13 +128,12 @@ describe("OutboxWorkerService.processBatch()", () => {
     const id = await seedOutboxRow(restaurantId, "widget.created", { attempts: 1 });
     const before = Date.now();
 
-    const summary = await worker({
+    await worker({
       "widget.created": async () => {
         throw new Error("handler blew up");
       },
     }).processBatch();
 
-    expect(summary).toEqual({ claimed: 1, succeeded: 0, retried: 1, deadLettered: 0 });
     const row = await readRow(id);
     expect(row.status).toBe("pending");
     expect(row.attempts).toBe(2);
@@ -143,13 +145,12 @@ describe("OutboxWorkerService.processBatch()", () => {
     const restaurantId = await createRestaurant("outbox-worker-dead-letter");
     const id = await seedOutboxRow(restaurantId, "widget.created", { attempts: 4 });
 
-    const summary = await worker({
+    await worker({
       "widget.created": async () => {
         throw new Error("still broken");
       },
     }).processBatch();
 
-    expect(summary).toEqual({ claimed: 1, succeeded: 0, retried: 0, deadLettered: 1 });
     const row = await readRow(id);
     expect(row.status).toBe("dead_letter");
     expect(row.attempts).toBe(5);
@@ -160,16 +161,22 @@ describe("OutboxWorkerService.processBatch()", () => {
     const restaurantId = await createRestaurant("outbox-worker-no-handler");
     const id = await seedOutboxRow(restaurantId, "no.such.handler");
 
-    const summary = await worker({}).processBatch();
+    await worker({}).processBatch();
 
-    expect(summary).toEqual({ claimed: 1, succeeded: 0, retried: 1, deadLettered: 0 });
     const row = await readRow(id);
     expect(row.lastError).toContain("no outbox handler registered");
+    expect(row.status).toBe("pending");
+    expect(row.attempts).toBe(1);
   });
 
-  it("logs and re-throws nothing when a batch has no eligible rows", async () => {
+  it("resolves cleanly without throwing when called with nothing of its own to claim", async () => {
+    // Can't assert claimed === 0 here: other test files run as separate parallel
+    // vitest workers against this same shared outbox table, so a globally empty
+    // batch isn't guaranteed. The only thing this test owns is "the call itself
+    // doesn't throw and returns a well-formed summary" — rule 14, a background job
+    // must never crash on an uneventful cycle.
     const summary = await worker({}).processBatch();
-    expect(summary).toEqual({ claimed: 0, succeeded: 0, retried: 0, deadLettered: 0 });
+    expect(summary.claimed).toBeGreaterThanOrEqual(0);
   });
 });
 
