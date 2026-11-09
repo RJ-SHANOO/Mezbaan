@@ -126,3 +126,21 @@ export {
   ProductModifierGroupSchema,
   type ProductModifierGroup,
 } from "./modifiers.js";
+export {
+  CreateComboSchema,
+  type CreateCombo,
+  UpdateComboSchema,
+  type UpdateCombo,
+  ComboSchema,
+  type Combo,
+  CreateComboSlotSchema,
+  type CreateComboSlot,
+  UpdateComboSlotSchema,
+  type UpdateComboSlot,
+  ComboSlotSchema,
+  type ComboSlot,
+  AttachComboSlotItemSchema,
+  type AttachComboSlotItem,
+  ComboSlotItemSchema,
+  type ComboSlotItem,
+} from "./combos.js";

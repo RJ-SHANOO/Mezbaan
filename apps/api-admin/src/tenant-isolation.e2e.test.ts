@@ -584,6 +584,103 @@ describe("tenant isolation — api-admin HTTP endpoints", () => {
     expect(attachByB.statusCode).toBe(404);
   });
 
+  it("a restaurant can build a combo with a fixed slot and a choice slot, attach items, and reject a second item on the fixed slot (positive control)", async () => {
+    const tenant = await signup("iso-combo-ok");
+
+    const combo = await app.inject({ method: "POST", url: "/combos", headers: { authorization: `Bearer ${tenant.accessToken}` }, payload: { name: "Burger Meal Deal" } });
+    expect(combo.statusCode).toBe(201);
+    const comboId = combo.json<{ id: string }>().id;
+
+    const fixedSlot = await app.inject({
+      method: "POST",
+      url: `/combos/${comboId}/slots`,
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+      payload: { name: "Main", kind: "fixed" },
+    });
+    expect(fixedSlot.statusCode).toBe(201);
+    const fixedSlotId = fixedSlot.json<{ id: string; minSelections: number; maxSelections: number }>().id;
+    expect(fixedSlot.json<{ minSelections: number }>().minSelections).toBe(1);
+
+    const choiceSlot = await app.inject({
+      method: "POST",
+      url: `/combos/${comboId}/slots`,
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+      payload: { name: "Drink", kind: "choice", minSelections: 1, maxSelections: 1 },
+    });
+    const choiceSlotId = choiceSlot.json<{ id: string }>().id;
+
+    const category = await app.inject({ method: "POST", url: "/categories", headers: { authorization: `Bearer ${tenant.accessToken}` }, payload: { name: "Mains" } });
+    const categoryId = category.json<{ id: string }>().id;
+    const burger = await app.inject({ method: "POST", url: "/products", headers: { authorization: `Bearer ${tenant.accessToken}` }, payload: { categoryId, name: "Burger" } });
+    const burgerId = burger.json<{ id: string }>().id;
+    const wrap = await app.inject({ method: "POST", url: "/products", headers: { authorization: `Bearer ${tenant.accessToken}` }, payload: { categoryId, name: "Wrap" } });
+    const wrapId = wrap.json<{ id: string }>().id;
+
+    const attachFixed = await app.inject({
+      method: "PUT",
+      url: `/combos/${comboId}/slots/${fixedSlotId}/items`,
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+      payload: { productId: burgerId },
+    });
+    expect(attachFixed.statusCode).toBe(200);
+
+    const attachSecondFixed = await app.inject({
+      method: "PUT",
+      url: `/combos/${comboId}/slots/${fixedSlotId}/items`,
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+      payload: { productId: wrapId },
+    });
+    expect(attachSecondFixed.statusCode).toBe(400);
+
+    const attachChoice = await app.inject({
+      method: "PUT",
+      url: `/combos/${comboId}/slots/${choiceSlotId}/items`,
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+      payload: { productId: wrapId },
+    });
+    expect(attachChoice.statusCode).toBe(200);
+
+    const listSlots = await app.inject({ method: "GET", url: `/combos/${comboId}/slots`, headers: { authorization: `Bearer ${tenant.accessToken}` } });
+    expect(listSlots.json<Array<{ id: string }>>().map((s) => s.id).sort()).toEqual([fixedSlotId, choiceSlotId].sort());
+  });
+
+  it("one restaurant's token can never see or touch another restaurant's combos, slots, or items", async () => {
+    const tenantA = await signup("iso-combo-a");
+    const tenantB = await signup("iso-combo-b");
+
+    const combo = await app.inject({ method: "POST", url: "/combos", headers: { authorization: `Bearer ${tenantA.accessToken}` }, payload: { name: "A's Deal" } });
+    const comboId = combo.json<{ id: string }>().id;
+    const slot = await app.inject({ method: "POST", url: `/combos/${comboId}/slots`, headers: { authorization: `Bearer ${tenantA.accessToken}` }, payload: { name: "Side", kind: "fixed" } });
+    const slotId = slot.json<{ id: string }>().id;
+
+    const listByB = await app.inject({ method: "GET", url: "/combos", headers: { authorization: `Bearer ${tenantB.accessToken}` } });
+    expect(listByB.json<unknown[]>()).toEqual([]);
+
+    const updateByB = await app.inject({
+      method: "PATCH",
+      url: `/combos/${comboId}`,
+      headers: { authorization: `Bearer ${tenantB.accessToken}` },
+      payload: { name: "Hijacked" },
+    });
+    expect(updateByB.statusCode).toBe(404);
+
+    const listSlotsByB = await app.inject({ method: "GET", url: `/combos/${comboId}/slots`, headers: { authorization: `Bearer ${tenantB.accessToken}` } });
+    expect(listSlotsByB.json<unknown[]>()).toEqual([]);
+
+    const category = await app.inject({ method: "POST", url: "/categories", headers: { authorization: `Bearer ${tenantB.accessToken}` }, payload: { name: "B's Category" } });
+    const categoryIdB = category.json<{ id: string }>().id;
+    const productB = await app.inject({ method: "POST", url: "/products", headers: { authorization: `Bearer ${tenantB.accessToken}` }, payload: { categoryId: categoryIdB, name: "B's Product" } });
+    const productIdB = productB.json<{ id: string }>().id;
+
+    const attachByB = await app.inject({
+      method: "PUT",
+      url: `/combos/${comboId}/slots/${slotId}/items`,
+      headers: { authorization: `Bearer ${tenantB.accessToken}` },
+      payload: { productId: productIdB },
+    });
+    expect(attachByB.statusCode).toBe(404);
+  });
+
   it("an invalid or missing token is rejected by every protected route the same way", async () => {
     const noToken = await app.inject({ method: "POST", url: "/manager-pin", payload: { pin: "1234" } });
     expect(noToken.statusCode).toBe(401);

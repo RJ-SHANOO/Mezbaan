@@ -7,6 +7,9 @@ import {
   auditLogs,
   branches,
   categories,
+  comboSlotItems,
+  comboSlots,
+  combos,
   devices,
   featureFlags,
   managerPins,
@@ -647,6 +650,66 @@ describe("product_variants/modifier_groups/modifier_options/product_modifier_gro
     );
 
     const seenByB = await withTenant(db, { restaurantId: restaurantBId }, (tx) => tx.select().from(productModifierGroups));
+    expect(seenByB).toEqual([]);
+  });
+});
+
+describe("combos/combo_slots/combo_slot_items — tenant isolation (P2-03)", () => {
+  it("a combo created under one tenant is never visible to another tenant's session", async () => {
+    const restaurantAId = await createRestaurant("Tenant LLL");
+    const restaurantBId = await createRestaurant("Tenant MMM");
+
+    await withTenant(db, { restaurantId: restaurantAId }, (tx) => tx.insert(combos).values({ restaurantId: restaurantAId, name: "Deal" }));
+
+    const seenByB = await withTenant(db, { restaurantId: restaurantBId }, (tx) => tx.select().from(combos));
+    expect(seenByB).toEqual([]);
+  });
+
+  it("a combo slot created under one tenant is never visible to another tenant's session", async () => {
+    const restaurantAId = await createRestaurant("Tenant NNN");
+    const restaurantBId = await createRestaurant("Tenant OOO");
+
+    const comboId = await withTenant(db, { restaurantId: restaurantAId }, async (tx) => {
+      const rows = await tx.insert(combos).values({ restaurantId: restaurantAId, name: "Deal" }).returning({ id: combos.id });
+      const id = rows[0]?.id;
+      if (!id) throw new Error("fixture: combo insert returned no row");
+      return id;
+    });
+    await withTenant(db, { restaurantId: restaurantAId }, (tx) =>
+      tx.insert(comboSlots).values({ restaurantId: restaurantAId, comboId, name: "Side", kind: "fixed", minSelections: 1, maxSelections: 1 }),
+    );
+
+    const seenByB = await withTenant(db, { restaurantId: restaurantBId }, (tx) => tx.select().from(comboSlots));
+    expect(seenByB).toEqual([]);
+  });
+
+  it("a combo_slot_items row created under one tenant is never visible to another tenant's session", async () => {
+    const restaurantAId = await createRestaurant("Tenant PPP");
+    const restaurantBId = await createRestaurant("Tenant QQQ");
+
+    const { comboSlotId, productId } = await withTenant(db, { restaurantId: restaurantAId }, async (tx) => {
+      const comboRows = await tx.insert(combos).values({ restaurantId: restaurantAId, name: "Deal" }).returning({ id: combos.id });
+      const comboId = comboRows[0]?.id;
+      if (!comboId) throw new Error("fixture: combo insert returned no row");
+      const slotRows = await tx
+        .insert(comboSlots)
+        .values({ restaurantId: restaurantAId, comboId, name: "Side", kind: "fixed", minSelections: 1, maxSelections: 1 })
+        .returning({ id: comboSlots.id });
+      const comboSlotId = slotRows[0]?.id;
+      if (!comboSlotId) throw new Error("fixture: combo slot insert returned no row");
+      const categoryRows = await tx.insert(categories).values({ restaurantId: restaurantAId, name: "Sides" }).returning({ id: categories.id });
+      const categoryId = categoryRows[0]?.id;
+      if (!categoryId) throw new Error("fixture: category insert returned no row");
+      const productRows = await tx.insert(products).values({ restaurantId: restaurantAId, categoryId, name: "Fries" }).returning({ id: products.id });
+      const productId = productRows[0]?.id;
+      if (!productId) throw new Error("fixture: product insert returned no row");
+      return { comboSlotId, productId };
+    });
+    await withTenant(db, { restaurantId: restaurantAId }, (tx) =>
+      tx.insert(comboSlotItems).values({ restaurantId: restaurantAId, comboSlotId, productId }),
+    );
+
+    const seenByB = await withTenant(db, { restaurantId: restaurantBId }, (tx) => tx.select().from(comboSlotItems));
     expect(seenByB).toEqual([]);
   });
 });

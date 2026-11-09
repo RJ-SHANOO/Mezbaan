@@ -21,3 +21,6 @@ export { productVariants } from "./product-variants.js";
 export { modifierGroups } from "./modifier-groups.js";
 export { modifierOptions } from "./modifier-options.js";
 export { productModifierGroups } from "./product-modifier-groups.js";
+export { combos } from "./combos.js";
+export { comboSlots } from "./combo-slots.js";
+export { comboSlotItems } from "./combo-slot-items.js";

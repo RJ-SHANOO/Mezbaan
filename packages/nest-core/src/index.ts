@@ -152,4 +152,15 @@ export {
   type UpdateModifierOptionParams,
 } from "./modifier-options.service.js";
 export { ModifierOptionsController } from "./modifier-options.controller.js";
+export { CombosService, type ComboRecord, type CreateComboParams, type UpdateComboParams } from "./combos.service.js";
+export { CombosController } from "./combos.controller.js";
+export { ComboSlotsService, type ComboSlotRecord, type CreateComboSlotParams, type UpdateComboSlotParams } from "./combo-slots.service.js";
+export { ComboSlotsController } from "./combo-slots.controller.js";
+export {
+  ComboSlotItemsService,
+  type ComboSlotItemRecord,
+  type AttachComboSlotItemParams,
+  type DetachComboSlotItemParams,
+} from "./combo-slot-items.service.js";
+export { ComboSlotItemsController } from "./combo-slot-items.controller.js";
 export { CatalogModule } from "./catalog.module.js";
