@@ -25,6 +25,7 @@ import {
   productVariants,
   diningTables,
   floors,
+  orders,
   productStockStatus,
   restaurants,
   roles,
@@ -924,6 +925,60 @@ describe("floors/dining_tables — tenant isolation (P2-07)", () => {
     await expect(
       withTenant(db, { restaurantId }, (tx) =>
         tx.insert(diningTables).values({ restaurantId, branchId, floorId, name: "T1", qrToken: `${restaurantId}.token-two` }),
+      ),
+    ).rejects.toThrow();
+  });
+});
+
+describe("orders — tenant isolation (P2-09)", () => {
+  it("an order created under one tenant is never visible to another tenant's session", async () => {
+    const restaurantAId = await createRestaurant("Tenant LLL3");
+    const restaurantBId = await createRestaurant("Tenant MMM3");
+    const userAId = await createUser(restaurantAId, "order-tenant-a");
+
+    const branchId = await withTenant(db, { restaurantId: restaurantAId }, async (tx) => {
+      const rows = await tx.insert(branches).values({ restaurantId: restaurantAId, name: "Main", timezone: "Asia/Karachi" }).returning({ id: branches.id });
+      const id = rows[0]?.id;
+      if (!id) throw new Error("fixture: branch insert returned no row");
+      return id;
+    });
+    await withTenant(db, { restaurantId: restaurantAId }, (tx) =>
+      tx.insert(orders).values({ restaurantId: restaurantAId, branchId, orderType: "takeaway", currency: "PKR", openedByUserId: userAId }),
+    );
+
+    const seenByB = await withTenant(db, { restaurantId: restaurantBId }, (tx) => tx.select().from(orders));
+    expect(seenByB).toEqual([]);
+  });
+
+  it("the CHECK constraint rejects a dine-in order with no table and a takeaway order with one", async () => {
+    const restaurantId = await createRestaurant("Tenant NNN3");
+    const userId = await createUser(restaurantId, "order-check");
+
+    const { branchId, tableId } = await withTenant(db, { restaurantId }, async (tx) => {
+      const branchRows = await tx.insert(branches).values({ restaurantId, name: "Main", timezone: "Asia/Karachi" }).returning({ id: branches.id });
+      const branchId = branchRows[0]?.id;
+      if (!branchId) throw new Error("fixture: branch insert returned no row");
+      const floorRows = await tx.insert(floors).values({ restaurantId, branchId, name: "Ground Floor" }).returning({ id: floors.id });
+      const floorId = floorRows[0]?.id;
+      if (!floorId) throw new Error("fixture: floor insert returned no row");
+      const tableRows = await tx
+        .insert(diningTables)
+        .values({ restaurantId, branchId, floorId, name: "T1", qrToken: `${restaurantId}.check-token` })
+        .returning({ id: diningTables.id });
+      const tableId = tableRows[0]?.id;
+      if (!tableId) throw new Error("fixture: table insert returned no row");
+      return { branchId, tableId };
+    });
+
+    await expect(
+      withTenant(db, { restaurantId }, (tx) =>
+        tx.insert(orders).values({ restaurantId, branchId, orderType: "dine_in", currency: "PKR", openedByUserId: userId }),
+      ),
+    ).rejects.toThrow();
+
+    await expect(
+      withTenant(db, { restaurantId }, (tx) =>
+        tx.insert(orders).values({ restaurantId, branchId, orderType: "takeaway", currency: "PKR", tableId, openedByUserId: userId }),
       ),
     ).rejects.toThrow();
   });

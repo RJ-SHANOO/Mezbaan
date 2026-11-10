@@ -7,6 +7,7 @@ import {
   HealthController,
   ManagerPinModule,
   MetricsController,
+  OrdersModule,
   ReleasesModule,
   SyncModule,
 } from "@mezbaan/nest-core";
@@ -19,6 +20,7 @@ const DEFAULT_APP_DATABASE_URL = "postgres://mezbaan_app:mezbaan_app_dev_passwor
     AuthModule.forRoot({ jwtSecret: process.env.JWT_SECRET ?? DEV_JWT_SECRET }),
     ManagerPinModule.forRoot(),
     DevicesTerminalModule.forRoot(),
+    OrdersModule.forRoot(),
     ReleasesModule.forRoot(),
     SyncModule.forRoot(),
   ],

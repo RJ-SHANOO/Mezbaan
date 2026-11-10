@@ -218,3 +218,15 @@ export {
   DiningTableSchema,
   type DiningTable,
 } from "./tables.js";
+export {
+  OrderStatusSchema,
+  type OrderStatus,
+  CreateOrderSchema,
+  type CreateOrder,
+  ListOrdersQuerySchema,
+  type ListOrdersQuery,
+  CancelOrderSchema,
+  type CancelOrder,
+  OrderSchema,
+  type Order,
+} from "./orders.js";

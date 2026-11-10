@@ -32,3 +32,4 @@ export { serviceChargeSettings } from "./service-charge-settings.js";
 export { productStockStatus } from "./product-stock-status.js";
 export { floors } from "./floors.js";
 export { diningTables } from "./dining-tables.js";
+export { orders } from "./orders.js";

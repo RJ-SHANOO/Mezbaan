@@ -222,3 +222,13 @@ export {
 } from "./dining-tables.service.js";
 export { DiningTablesController } from "./dining-tables.controller.js";
 export { TablesModule } from "./tables.module.js";
+export {
+  OrdersService,
+  type OrderStatus,
+  type OrderRecord,
+  type CreateOrderParams,
+  type ListOrdersParams,
+  type OrderActionParams,
+} from "./orders.service.js";
+export { OrdersController } from "./orders.controller.js";
+export { OrdersModule } from "./orders.module.js";
