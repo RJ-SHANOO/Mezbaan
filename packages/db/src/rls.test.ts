@@ -25,8 +25,11 @@ import {
   productVariants,
   restaurants,
   roles,
+  serviceChargeSettings,
   sessions,
   syncOperations,
+  taxRules,
+  taxSettings,
   users,
 } from "./schema/index.js";
 
@@ -763,6 +766,50 @@ describe("price_lists/price_list_items — tenant isolation (P2-04)", () => {
 
     await expect(
       withTenant(db, { restaurantId }, (tx) => tx.insert(priceLists).values({ restaurantId, name: "Standard", currency: "PKR", version: firstVersion })),
+    ).rejects.toThrow();
+  });
+});
+
+describe("tax_rules/tax_settings/service_charge_settings — tenant isolation (P2-05)", () => {
+  it("a tax rule created under one tenant is never visible to another tenant's session", async () => {
+    const restaurantAId = await createRestaurant("Tenant WWW2");
+    const restaurantBId = await createRestaurant("Tenant XXX2");
+
+    await withTenant(db, { restaurantId: restaurantAId }, (tx) => tx.insert(taxRules).values({ restaurantId: restaurantAId, name: "GST", rateBasisPoints: 1700 }));
+
+    const seenByB = await withTenant(db, { restaurantId: restaurantBId }, (tx) => tx.select().from(taxRules));
+    expect(seenByB).toEqual([]);
+  });
+
+  it("a tax_settings row created under one tenant is never visible to another tenant's session", async () => {
+    const restaurantAId = await createRestaurant("Tenant YYY2");
+    const restaurantBId = await createRestaurant("Tenant ZZZ2");
+
+    await withTenant(db, { restaurantId: restaurantAId }, (tx) => tx.insert(taxSettings).values({ restaurantId: restaurantAId, pricingMode: "exclusive" }));
+
+    const seenByB = await withTenant(db, { restaurantId: restaurantBId }, (tx) => tx.select().from(taxSettings));
+    expect(seenByB).toEqual([]);
+  });
+
+  it("a service_charge_settings row created under one tenant is never visible to another tenant's session", async () => {
+    const restaurantAId = await createRestaurant("Tenant AAA3");
+    const restaurantBId = await createRestaurant("Tenant BBB3");
+
+    await withTenant(db, { restaurantId: restaurantAId }, (tx) =>
+      tx.insert(serviceChargeSettings).values({ restaurantId: restaurantAId, rateBasisPoints: 1000 }),
+    );
+
+    const seenByB = await withTenant(db, { restaurantId: restaurantBId }, (tx) => tx.select().from(serviceChargeSettings));
+    expect(seenByB).toEqual([]);
+  });
+
+  it("the restaurant-wide tax_settings default UNIQUE index actually rejects a second default row", async () => {
+    const restaurantId = await createRestaurant("Tenant CCC3");
+
+    await withTenant(db, { restaurantId }, (tx) => tx.insert(taxSettings).values({ restaurantId, pricingMode: "exclusive" }));
+
+    await expect(
+      withTenant(db, { restaurantId }, (tx) => tx.insert(taxSettings).values({ restaurantId, pricingMode: "inclusive" })),
     ).rejects.toThrow();
   });
 });

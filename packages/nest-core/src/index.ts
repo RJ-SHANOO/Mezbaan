@@ -180,4 +180,25 @@ export {
 } from "./price-list-items.service.js";
 export { PriceListItemsController } from "./price-list-items.controller.js";
 export { PriceResolutionService, type ResolvePriceParams, type ResolvedPriceRecord } from "./price-resolution.service.js";
+export {
+  TaxRulesService,
+  type TaxRuleRecord,
+  type CreateTaxRuleParams,
+  type UpdateTaxRuleParams,
+  type ResolveApplicableTaxRulesParams,
+  type AppliedTaxRule,
+} from "./tax-rules.service.js";
+export { TaxRulesController } from "./tax-rules.controller.js";
+export { TaxSettingsService, type PricingMode, type TaxSettingsRecord, type SetTaxSettingsParams } from "./tax-settings.service.js";
+export { TaxSettingsController } from "./tax-settings.controller.js";
+export {
+  ServiceChargeSettingsService,
+  type ServiceChargeSettingRecord,
+  type CreateServiceChargeSettingParams,
+  type UpdateServiceChargeSettingParams,
+  type ResolveApplicableServiceChargeParams,
+} from "./service-charge-settings.service.js";
+export { ServiceChargeSettingsController } from "./service-charge-settings.controller.js";
+export { TaxCalculationService, type PreviewChargesParams, type PreviewedChargesRecord } from "./tax-calculation.service.js";
+export { TaxCalculationController } from "./tax-calculation.controller.js";
 export { CatalogModule } from "./catalog.module.js";

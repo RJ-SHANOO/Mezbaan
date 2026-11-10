@@ -21,13 +21,22 @@ import { ProductVariantsController } from "./product-variants.controller.js";
 import { ProductVariantsService } from "./product-variants.service.js";
 import { ProductsController } from "./products.controller.js";
 import { ProductsService } from "./products.service.js";
+import { ServiceChargeSettingsController } from "./service-charge-settings.controller.js";
+import { ServiceChargeSettingsService } from "./service-charge-settings.service.js";
+import { TaxCalculationController } from "./tax-calculation.controller.js";
+import { TaxCalculationService } from "./tax-calculation.service.js";
+import { TaxRulesController } from "./tax-rules.controller.js";
+import { TaxRulesService } from "./tax-rules.service.js";
+import { TaxSettingsController } from "./tax-settings.controller.js";
+import { TaxSettingsService } from "./tax-settings.service.js";
 
 @Module({})
 export class CatalogModule {
   /** Requires DbModule.forRoot(...) to already be imported, same as the other
    * feature modules. Categories, products, variants, modifiers (P2-02),
-   * combos (P2-03) and price lists (P2-04) all share one module — all
-   * catalog management, all gated by the same menu.manage permission. */
+   * combos (P2-03), price lists (P2-04) and tax/service-charge rules (P2-05)
+   * all share one module — all catalog/pricing management, all gated by the
+   * same menu.manage permission. */
   static forRoot(): DynamicModule {
     return {
       module: CatalogModule,
@@ -42,6 +51,10 @@ export class CatalogModule {
         ComboSlotItemsController,
         PriceListsController,
         PriceListItemsController,
+        TaxRulesController,
+        TaxSettingsController,
+        ServiceChargeSettingsController,
+        TaxCalculationController,
       ],
       providers: [
         CategoriesService,
@@ -55,6 +68,10 @@ export class CatalogModule {
         PriceListsService,
         PriceListItemsService,
         PriceResolutionService,
+        TaxRulesService,
+        TaxSettingsService,
+        ServiceChargeSettingsService,
+        TaxCalculationService,
         AuditLogService,
       ],
       exports: [
@@ -69,6 +86,10 @@ export class CatalogModule {
         PriceListsService,
         PriceListItemsService,
         PriceResolutionService,
+        TaxRulesService,
+        TaxSettingsService,
+        ServiceChargeSettingsService,
+        TaxCalculationService,
       ],
     };
   }

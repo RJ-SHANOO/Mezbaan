@@ -765,6 +765,72 @@ describe("tenant isolation — api-admin HTTP endpoints", () => {
     expect(resolveByB.json()).toBeNull();
   });
 
+  it("a restaurant can configure tax rules, pricing mode and a service charge, then preview charges on a subtotal (positive control)", async () => {
+    const tenant = await signup("iso-tax-ok");
+
+    const taxRule = await app.inject({
+      method: "POST",
+      url: "/tax-rules",
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+      payload: { name: "GST", rateBasisPoints: 1000 },
+    });
+    expect(taxRule.statusCode).toBe(201);
+
+    const serviceCharge = await app.inject({
+      method: "POST",
+      url: "/service-charge-settings",
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+      payload: { rateBasisPoints: 500, isTaxable: false },
+    });
+    expect(serviceCharge.statusCode).toBe(201);
+
+    const preview = await app.inject({
+      method: "GET",
+      url: `/tax/preview?branchId=${tenant.branchId}&orderType=dine_in&subtotalMinor=10000&currency=PKR`,
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+    });
+    expect(preview.statusCode).toBe(200);
+    const body = preview.json<{ taxMinor: string; serviceChargeMinor: string; totalMinor: string }>();
+    expect(body.taxMinor).toBe("1000");
+    expect(body.serviceChargeMinor).toBe("500");
+    expect(body.totalMinor).toBe("11500");
+  });
+
+  it("one restaurant's token can never see or use another restaurant's tax rules, tax settings or service charge settings", async () => {
+    const tenantA = await signup("iso-tax-a");
+    const tenantB = await signup("iso-tax-b");
+
+    await app.inject({
+      method: "POST",
+      url: "/tax-rules",
+      headers: { authorization: `Bearer ${tenantA.accessToken}` },
+      payload: { name: "GST", rateBasisPoints: 1700 },
+    });
+    await app.inject({
+      method: "PUT",
+      url: "/tax-settings",
+      headers: { authorization: `Bearer ${tenantA.accessToken}` },
+      payload: { pricingMode: "inclusive" },
+    });
+
+    const rulesByB = await app.inject({ method: "GET", url: "/tax-rules", headers: { authorization: `Bearer ${tenantB.accessToken}` } });
+    expect(rulesByB.json<unknown[]>()).toEqual([]);
+
+    const settingsByB = await app.inject({ method: "GET", url: "/tax-settings", headers: { authorization: `Bearer ${tenantB.accessToken}` } });
+    expect(settingsByB.json<unknown[]>()).toEqual([]);
+
+    // Tenant B's own preview sees none of tenant A's config — defaults apply (exclusive, no tax, no service charge).
+    const previewB = await app.inject({
+      method: "GET",
+      url: `/tax/preview?branchId=${tenantB.branchId}&orderType=dine_in&subtotalMinor=10000&currency=PKR`,
+      headers: { authorization: `Bearer ${tenantB.accessToken}` },
+    });
+    expect(previewB.statusCode).toBe(200);
+    const bodyB = previewB.json<{ pricingMode: string; totalMinor: string }>();
+    expect(bodyB.pricingMode).toBe("exclusive");
+    expect(bodyB.totalMinor).toBe("10000");
+  });
+
   it("an invalid or missing token is rejected by every protected route the same way", async () => {
     const noToken = await app.inject({ method: "POST", url: "/manager-pin", payload: { pin: "1234" } });
     expect(noToken.statusCode).toBe(401);
