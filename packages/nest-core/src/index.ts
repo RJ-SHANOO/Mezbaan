@@ -201,4 +201,12 @@ export {
 export { ServiceChargeSettingsController } from "./service-charge-settings.controller.js";
 export { TaxCalculationService, type PreviewChargesParams, type PreviewedChargesRecord } from "./tax-calculation.service.js";
 export { TaxCalculationController } from "./tax-calculation.controller.js";
+export {
+  ProductStockStatusService,
+  type ProductStockStatusRecord,
+  type MarkOutOfStockParams,
+  type ClearOutOfStockParams,
+  type ListOutOfStockParams,
+} from "./product-stock-status.service.js";
+export { ProductStockStatusController } from "./product-stock-status.controller.js";
 export { CatalogModule } from "./catalog.module.js";

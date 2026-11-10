@@ -188,3 +188,13 @@ export {
   PreviewedChargesSchema,
   type PreviewedCharges,
 } from "./tax.js";
+export {
+  MarkOutOfStockSchema,
+  type MarkOutOfStock,
+  ClearOutOfStockQuerySchema,
+  type ClearOutOfStockQuery,
+  ListOutOfStockQuerySchema,
+  type ListOutOfStockQuery,
+  OutOfStockMarkingSchema,
+  type OutOfStockMarking,
+} from "./stock-status.js";

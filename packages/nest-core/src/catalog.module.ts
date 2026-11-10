@@ -21,6 +21,8 @@ import { ProductVariantsController } from "./product-variants.controller.js";
 import { ProductVariantsService } from "./product-variants.service.js";
 import { ProductsController } from "./products.controller.js";
 import { ProductsService } from "./products.service.js";
+import { ProductStockStatusController } from "./product-stock-status.controller.js";
+import { ProductStockStatusService } from "./product-stock-status.service.js";
 import { ServiceChargeSettingsController } from "./service-charge-settings.controller.js";
 import { ServiceChargeSettingsService } from "./service-charge-settings.service.js";
 import { TaxCalculationController } from "./tax-calculation.controller.js";
@@ -34,9 +36,10 @@ import { TaxSettingsService } from "./tax-settings.service.js";
 export class CatalogModule {
   /** Requires DbModule.forRoot(...) to already be imported, same as the other
    * feature modules. Categories, products, variants, modifiers (P2-02),
-   * combos (P2-03), price lists (P2-04) and tax/service-charge rules (P2-05)
-   * all share one module — all catalog/pricing management, all gated by the
-   * same menu.manage permission. */
+   * combos (P2-03), price lists (P2-04), tax/service-charge rules (P2-05) and
+   * out-of-stock marking (P2-06) all share one module — all catalog/pricing/
+   * stock-status management, gated by menu.manage or (for the more
+   * operational out-of-stock flag) pos.mark_out_of_stock. */
   static forRoot(): DynamicModule {
     return {
       module: CatalogModule,
@@ -55,6 +58,7 @@ export class CatalogModule {
         TaxSettingsController,
         ServiceChargeSettingsController,
         TaxCalculationController,
+        ProductStockStatusController,
       ],
       providers: [
         CategoriesService,
@@ -72,6 +76,7 @@ export class CatalogModule {
         TaxSettingsService,
         ServiceChargeSettingsService,
         TaxCalculationService,
+        ProductStockStatusService,
         AuditLogService,
       ],
       exports: [
@@ -90,6 +95,7 @@ export class CatalogModule {
         TaxSettingsService,
         ServiceChargeSettingsService,
         TaxCalculationService,
+        ProductStockStatusService,
       ],
     };
   }

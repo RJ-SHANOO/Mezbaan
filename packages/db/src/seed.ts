@@ -19,16 +19,20 @@ export const PERMISSION_SEED = [
   { key: "reports.view", description: "View sales and inventory reports" },
   { key: "settings.manage", description: "Manage restaurant/branch settings" },
   { key: "menu.manage", description: "Manage categories, products and branch availability" },
+  { key: "pos.mark_out_of_stock", description: "Mark or clear a product or variant as out of stock (86) at a branch" },
 ] as const;
 
 // Which seeded permissions each role gets by default. Kitchen staff gets none of these —
 // kitchen APIs never carry money fields at all (rule 18), and kitchen-specific
-// permissions (bump, recall, rush) arrive with the kitchen module in Phase 3.
+// permissions (bump, recall, rush) arrive with the kitchen module in Phase 3. That same
+// reasoning is why pos.mark_out_of_stock (P2-06) doesn't go to kitchen_staff either, even
+// though kitchen screens are one of the task's two stated readers: there's no kitchen
+// screen or kitchen-specific permission set for it to join yet.
 export const ROLE_PERMISSIONS: Readonly<Record<string, readonly string[]>> = {
   super_admin: PERMISSION_SEED.map((p) => p.key),
   owner: PERMISSION_SEED.map((p) => p.key),
-  branch_manager: ["pos.sell", "pos.void.approve", "inventory.adjust", "reports.view", "menu.manage"],
-  cashier: ["pos.sell"],
+  branch_manager: ["pos.sell", "pos.void.approve", "inventory.adjust", "reports.view", "menu.manage", "pos.mark_out_of_stock"],
+  cashier: ["pos.sell", "pos.mark_out_of_stock"],
   kitchen_staff: [],
 };
 

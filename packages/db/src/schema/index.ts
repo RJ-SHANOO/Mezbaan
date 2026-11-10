@@ -29,3 +29,4 @@ export { priceListItems } from "./price-list-items.js";
 export { taxRules } from "./tax-rules.js";
 export { taxSettings } from "./tax-settings.js";
 export { serviceChargeSettings } from "./service-charge-settings.js";
+export { productStockStatus } from "./product-stock-status.js";

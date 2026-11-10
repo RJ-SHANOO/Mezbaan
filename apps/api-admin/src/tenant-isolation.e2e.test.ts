@@ -831,6 +831,71 @@ describe("tenant isolation — api-admin HTTP endpoints", () => {
     expect(bodyB.totalMinor).toBe("10000");
   });
 
+  it("a restaurant can 86 a product at its branch, see it listed, and clear it (positive control)", async () => {
+    const tenant = await signup("iso-stock-ok");
+
+    const category = await app.inject({ method: "POST", url: "/categories", headers: { authorization: `Bearer ${tenant.accessToken}` }, payload: { name: "Burgers" } });
+    const categoryId = category.json<{ id: string }>().id;
+    const product = await app.inject({ method: "POST", url: "/products", headers: { authorization: `Bearer ${tenant.accessToken}` }, payload: { categoryId, name: "Cheeseburger" } });
+    const productId = product.json<{ id: string }>().id;
+
+    const mark = await app.inject({
+      method: "PUT",
+      url: "/stock-status",
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+      payload: { branchId: tenant.branchId, productId, reason: "Ran out" },
+    });
+    expect(mark.statusCode).toBe(200);
+
+    const list = await app.inject({
+      method: "GET",
+      url: `/stock-status?branchId=${tenant.branchId}`,
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+    });
+    expect(list.statusCode).toBe(200);
+    expect(list.json<{ productId: string }[]>().map((m) => m.productId)).toEqual([productId]);
+
+    const clear = await app.inject({
+      method: "DELETE",
+      url: `/stock-status?branchId=${tenant.branchId}&productId=${productId}`,
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+    });
+    expect(clear.statusCode).toBe(200);
+
+    const listAfterClear = await app.inject({
+      method: "GET",
+      url: `/stock-status?branchId=${tenant.branchId}`,
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+    });
+    expect(listAfterClear.json<unknown[]>()).toEqual([]);
+  });
+
+  it("one restaurant's token can never see or clear another restaurant's out-of-stock markings", async () => {
+    const tenantA = await signup("iso-stock-a");
+    const tenantB = await signup("iso-stock-b");
+
+    const category = await app.inject({ method: "POST", url: "/categories", headers: { authorization: `Bearer ${tenantA.accessToken}` }, payload: { name: "Burgers" } });
+    const categoryId = category.json<{ id: string }>().id;
+    const product = await app.inject({ method: "POST", url: "/products", headers: { authorization: `Bearer ${tenantA.accessToken}` }, payload: { categoryId, name: "Cheeseburger" } });
+    const productId = product.json<{ id: string }>().id;
+    await app.inject({
+      method: "PUT",
+      url: "/stock-status",
+      headers: { authorization: `Bearer ${tenantA.accessToken}` },
+      payload: { branchId: tenantA.branchId, productId },
+    });
+
+    const listByB = await app.inject({ method: "GET", url: `/stock-status?branchId=${tenantA.branchId}`, headers: { authorization: `Bearer ${tenantB.accessToken}` } });
+    expect(listByB.json<unknown[]>()).toEqual([]);
+
+    const clearByB = await app.inject({
+      method: "DELETE",
+      url: `/stock-status?branchId=${tenantA.branchId}&productId=${productId}`,
+      headers: { authorization: `Bearer ${tenantB.accessToken}` },
+    });
+    expect(clearByB.statusCode).toBe(404);
+  });
+
   it("an invalid or missing token is rejected by every protected route the same way", async () => {
     const noToken = await app.inject({ method: "POST", url: "/manager-pin", payload: { pin: "1234" } });
     expect(noToken.statusCode).toBe(401);

@@ -23,6 +23,7 @@ import {
   productModifierGroups,
   products,
   productVariants,
+  productStockStatus,
   restaurants,
   roles,
   serviceChargeSettings,
@@ -810,6 +811,56 @@ describe("tax_rules/tax_settings/service_charge_settings — tenant isolation (P
 
     await expect(
       withTenant(db, { restaurantId }, (tx) => tx.insert(taxSettings).values({ restaurantId, pricingMode: "inclusive" })),
+    ).rejects.toThrow();
+  });
+});
+
+describe("product_stock_status — tenant isolation (P2-06)", () => {
+  it("a stock status marking created under one tenant is never visible to another tenant's session", async () => {
+    const restaurantAId = await createRestaurant("Tenant DDD3");
+    const restaurantBId = await createRestaurant("Tenant EEE3");
+    const userAId = await createUser(restaurantAId, "stock-tenant-a");
+
+    const { branchId, productId } = await withTenant(db, { restaurantId: restaurantAId }, async (tx) => {
+      const branchRows = await tx.insert(branches).values({ restaurantId: restaurantAId, name: "Main", timezone: "Asia/Karachi" }).returning({ id: branches.id });
+      const branchId = branchRows[0]?.id;
+      if (!branchId) throw new Error("fixture: branch insert returned no row");
+      const categoryRows = await tx.insert(categories).values({ restaurantId: restaurantAId, name: "Burgers" }).returning({ id: categories.id });
+      const categoryId = categoryRows[0]?.id;
+      if (!categoryId) throw new Error("fixture: category insert returned no row");
+      const productRows = await tx.insert(products).values({ restaurantId: restaurantAId, categoryId, name: "Cheeseburger" }).returning({ id: products.id });
+      const productId = productRows[0]?.id;
+      if (!productId) throw new Error("fixture: product insert returned no row");
+      return { branchId, productId };
+    });
+    await withTenant(db, { restaurantId: restaurantAId }, (tx) =>
+      tx.insert(productStockStatus).values({ restaurantId: restaurantAId, branchId, productId, markedByUserId: userAId }),
+    );
+
+    const seenByB = await withTenant(db, { restaurantId: restaurantBId }, (tx) => tx.select().from(productStockStatus));
+    expect(seenByB).toEqual([]);
+  });
+
+  it("the branch+product UNIQUE index actually rejects a second active marking for the same item", async () => {
+    const restaurantId = await createRestaurant("Tenant FFF3");
+    const userId = await createUser(restaurantId, "stock-dup");
+
+    const { branchId, productId } = await withTenant(db, { restaurantId }, async (tx) => {
+      const branchRows = await tx.insert(branches).values({ restaurantId, name: "Main", timezone: "Asia/Karachi" }).returning({ id: branches.id });
+      const branchId = branchRows[0]?.id;
+      if (!branchId) throw new Error("fixture: branch insert returned no row");
+      const categoryRows = await tx.insert(categories).values({ restaurantId, name: "Burgers" }).returning({ id: categories.id });
+      const categoryId = categoryRows[0]?.id;
+      if (!categoryId) throw new Error("fixture: category insert returned no row");
+      const productRows = await tx.insert(products).values({ restaurantId, categoryId, name: "Cheeseburger" }).returning({ id: products.id });
+      const productId = productRows[0]?.id;
+      if (!productId) throw new Error("fixture: product insert returned no row");
+      return { branchId, productId };
+    });
+    await withTenant(db, { restaurantId }, (tx) => tx.insert(productStockStatus).values({ restaurantId, branchId, productId, markedByUserId: userId }));
+
+    await expect(
+      withTenant(db, { restaurantId }, (tx) => tx.insert(productStockStatus).values({ restaurantId, branchId, productId, markedByUserId: userId })),
     ).rejects.toThrow();
   });
 });
