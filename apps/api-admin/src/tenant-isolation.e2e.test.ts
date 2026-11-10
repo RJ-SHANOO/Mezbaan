@@ -896,6 +896,78 @@ describe("tenant isolation — api-admin HTTP endpoints", () => {
     expect(clearByB.statusCode).toBe(404);
   });
 
+  it("a restaurant can build a floor plan: create a floor, a table on it, move it, and regenerate its QR code (positive control)", async () => {
+    const tenant = await signup("iso-tables-ok");
+
+    const floor = await app.inject({
+      method: "POST",
+      url: "/floors",
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+      payload: { branchId: tenant.branchId, name: "Ground Floor" },
+    });
+    expect(floor.statusCode).toBe(201);
+    const floorId = floor.json<{ id: string }>().id;
+
+    const table = await app.inject({
+      method: "POST",
+      url: "/tables",
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+      payload: { floorId, name: "T1", seatCount: 4 },
+    });
+    expect(table.statusCode).toBe(201);
+    const body = table.json<{ id: string; branchId: string; status: string; qrToken: string }>();
+    expect(body.branchId).toBe(tenant.branchId);
+    expect(body.status).toBe("available");
+    const tableId = body.id;
+
+    const markOccupied = await app.inject({
+      method: "PATCH",
+      url: `/tables/${tableId}`,
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+      payload: { status: "occupied" },
+    });
+    expect(markOccupied.statusCode).toBe(200);
+    expect(markOccupied.json<{ status: string }>().status).toBe("occupied");
+
+    const regenerate = await app.inject({ method: "POST", url: `/tables/${tableId}/regenerate-qr-code`, headers: { authorization: `Bearer ${tenant.accessToken}` } });
+    expect(regenerate.statusCode).toBe(201);
+    expect(regenerate.json<{ qrToken: string }>().qrToken).not.toBe(body.qrToken);
+  });
+
+  it("one restaurant's token can never see, edit, or move another restaurant's floors and tables", async () => {
+    const tenantA = await signup("iso-tables-a");
+    const tenantB = await signup("iso-tables-b");
+
+    const floor = await app.inject({
+      method: "POST",
+      url: "/floors",
+      headers: { authorization: `Bearer ${tenantA.accessToken}` },
+      payload: { branchId: tenantA.branchId, name: "Ground Floor" },
+    });
+    const floorId = floor.json<{ id: string }>().id;
+    const table = await app.inject({
+      method: "POST",
+      url: "/tables",
+      headers: { authorization: `Bearer ${tenantA.accessToken}` },
+      payload: { floorId, name: "T1" },
+    });
+    const tableId = table.json<{ id: string }>().id;
+
+    const floorsByB = await app.inject({ method: "GET", url: "/floors", headers: { authorization: `Bearer ${tenantB.accessToken}` } });
+    expect(floorsByB.json<unknown[]>()).toEqual([]);
+
+    const tablesByB = await app.inject({ method: "GET", url: "/tables", headers: { authorization: `Bearer ${tenantB.accessToken}` } });
+    expect(tablesByB.json<unknown[]>()).toEqual([]);
+
+    const updateByB = await app.inject({
+      method: "PATCH",
+      url: `/tables/${tableId}`,
+      headers: { authorization: `Bearer ${tenantB.accessToken}` },
+      payload: { status: "occupied" },
+    });
+    expect(updateByB.statusCode).toBe(404);
+  });
+
   it("an invalid or missing token is rejected by every protected route the same way", async () => {
     const noToken = await app.inject({ method: "POST", url: "/manager-pin", payload: { pin: "1234" } });
     expect(noToken.statusCode).toBe(401);

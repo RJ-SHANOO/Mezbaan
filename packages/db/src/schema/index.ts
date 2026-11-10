@@ -30,3 +30,5 @@ export { taxRules } from "./tax-rules.js";
 export { taxSettings } from "./tax-settings.js";
 export { serviceChargeSettings } from "./service-charge-settings.js";
 export { productStockStatus } from "./product-stock-status.js";
+export { floors } from "./floors.js";
+export { diningTables } from "./dining-tables.js";

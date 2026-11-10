@@ -210,3 +210,15 @@ export {
 } from "./product-stock-status.service.js";
 export { ProductStockStatusController } from "./product-stock-status.controller.js";
 export { CatalogModule } from "./catalog.module.js";
+export { FloorsService, type FloorRecord, type CreateFloorParams, type UpdateFloorParams } from "./floors.service.js";
+export { FloorsController } from "./floors.controller.js";
+export {
+  DiningTablesService,
+  type TableStatus,
+  type DiningTableRecord,
+  type CreateDiningTableParams,
+  type UpdateDiningTableParams,
+  type RegenerateQrCodeParams,
+} from "./dining-tables.service.js";
+export { DiningTablesController } from "./dining-tables.controller.js";
+export { TablesModule } from "./tables.module.js";

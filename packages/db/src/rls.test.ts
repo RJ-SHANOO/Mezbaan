@@ -23,6 +23,8 @@ import {
   productModifierGroups,
   products,
   productVariants,
+  diningTables,
+  floors,
   productStockStatus,
   restaurants,
   roles,
@@ -861,6 +863,68 @@ describe("product_stock_status — tenant isolation (P2-06)", () => {
 
     await expect(
       withTenant(db, { restaurantId }, (tx) => tx.insert(productStockStatus).values({ restaurantId, branchId, productId, markedByUserId: userId })),
+    ).rejects.toThrow();
+  });
+});
+
+describe("floors/dining_tables — tenant isolation (P2-07)", () => {
+  it("a floor created under one tenant is never visible to another tenant's session", async () => {
+    const restaurantAId = await createRestaurant("Tenant GGG3");
+    const restaurantBId = await createRestaurant("Tenant HHH3");
+    const branchId = await withTenant(db, { restaurantId: restaurantAId }, async (tx) => {
+      const rows = await tx.insert(branches).values({ restaurantId: restaurantAId, name: "Main", timezone: "Asia/Karachi" }).returning({ id: branches.id });
+      const id = rows[0]?.id;
+      if (!id) throw new Error("fixture: branch insert returned no row");
+      return id;
+    });
+
+    await withTenant(db, { restaurantId: restaurantAId }, (tx) => tx.insert(floors).values({ restaurantId: restaurantAId, branchId, name: "Ground Floor" }));
+
+    const seenByB = await withTenant(db, { restaurantId: restaurantBId }, (tx) => tx.select().from(floors));
+    expect(seenByB).toEqual([]);
+  });
+
+  it("a dining table created under one tenant is never visible to another tenant's session", async () => {
+    const restaurantAId = await createRestaurant("Tenant III3");
+    const restaurantBId = await createRestaurant("Tenant JJJ3");
+
+    const { branchId, floorId } = await withTenant(db, { restaurantId: restaurantAId }, async (tx) => {
+      const branchRows = await tx.insert(branches).values({ restaurantId: restaurantAId, name: "Main", timezone: "Asia/Karachi" }).returning({ id: branches.id });
+      const branchId = branchRows[0]?.id;
+      if (!branchId) throw new Error("fixture: branch insert returned no row");
+      const floorRows = await tx.insert(floors).values({ restaurantId: restaurantAId, branchId, name: "Ground Floor" }).returning({ id: floors.id });
+      const floorId = floorRows[0]?.id;
+      if (!floorId) throw new Error("fixture: floor insert returned no row");
+      return { branchId, floorId };
+    });
+    await withTenant(db, { restaurantId: restaurantAId }, (tx) =>
+      tx.insert(diningTables).values({ restaurantId: restaurantAId, branchId, floorId, name: "T1", qrToken: `${restaurantAId}.test-token` }),
+    );
+
+    const seenByB = await withTenant(db, { restaurantId: restaurantBId }, (tx) => tx.select().from(diningTables));
+    expect(seenByB).toEqual([]);
+  });
+
+  it("the branch+name UNIQUE index actually rejects a duplicate table name within the same branch", async () => {
+    const restaurantId = await createRestaurant("Tenant KKK3");
+
+    const { branchId, floorId } = await withTenant(db, { restaurantId }, async (tx) => {
+      const branchRows = await tx.insert(branches).values({ restaurantId, name: "Main", timezone: "Asia/Karachi" }).returning({ id: branches.id });
+      const branchId = branchRows[0]?.id;
+      if (!branchId) throw new Error("fixture: branch insert returned no row");
+      const floorRows = await tx.insert(floors).values({ restaurantId, branchId, name: "Ground Floor" }).returning({ id: floors.id });
+      const floorId = floorRows[0]?.id;
+      if (!floorId) throw new Error("fixture: floor insert returned no row");
+      return { branchId, floorId };
+    });
+    await withTenant(db, { restaurantId }, (tx) =>
+      tx.insert(diningTables).values({ restaurantId, branchId, floorId, name: "T1", qrToken: `${restaurantId}.token-one` }),
+    );
+
+    await expect(
+      withTenant(db, { restaurantId }, (tx) =>
+        tx.insert(diningTables).values({ restaurantId, branchId, floorId, name: "T1", qrToken: `${restaurantId}.token-two` }),
+      ),
     ).rejects.toThrow();
   });
 });

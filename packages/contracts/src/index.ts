@@ -198,3 +198,23 @@ export {
   OutOfStockMarkingSchema,
   type OutOfStockMarking,
 } from "./stock-status.js";
+export {
+  ListFloorsQuerySchema,
+  type ListFloorsQuery,
+  CreateFloorSchema,
+  type CreateFloor,
+  UpdateFloorSchema,
+  type UpdateFloor,
+  FloorSchema,
+  type Floor,
+  TableStatusSchema,
+  type TableStatus,
+  ListDiningTablesQuerySchema,
+  type ListDiningTablesQuery,
+  CreateDiningTableSchema,
+  type CreateDiningTable,
+  UpdateDiningTableSchema,
+  type UpdateDiningTable,
+  DiningTableSchema,
+  type DiningTable,
+} from "./tables.js";
