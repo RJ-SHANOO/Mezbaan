@@ -231,4 +231,20 @@ export {
   type OrderActionParams,
 } from "./orders.service.js";
 export { OrdersController } from "./orders.controller.js";
+export {
+  DeliveryRidersService,
+  type DeliveryRiderRecord,
+  type CreateDeliveryRiderParams,
+  type UpdateDeliveryRiderParams,
+} from "./delivery-riders.service.js";
+export { DeliveryRidersController } from "./delivery-riders.controller.js";
+export {
+  DeliveryDetailsService,
+  type DeliveryStatus,
+  type DeliveryDetailsRecord,
+  type SetDeliveryDetailsParams,
+  type AssignRiderParams,
+  type UpdateDeliveryStatusParams,
+} from "./delivery-details.service.js";
+export { DeliveryDetailsController } from "./delivery-details.controller.js";
 export { OrdersModule } from "./orders.module.js";

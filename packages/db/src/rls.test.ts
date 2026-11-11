@@ -23,6 +23,8 @@ import {
   productModifierGroups,
   products,
   productVariants,
+  deliveryDetails,
+  deliveryRiders,
   diningTables,
   floors,
   orders,
@@ -979,6 +981,76 @@ describe("orders — tenant isolation (P2-09)", () => {
     await expect(
       withTenant(db, { restaurantId }, (tx) =>
         tx.insert(orders).values({ restaurantId, branchId, orderType: "takeaway", currency: "PKR", tableId, openedByUserId: userId }),
+      ),
+    ).rejects.toThrow();
+  });
+});
+
+describe("delivery_riders/delivery_details — tenant isolation (P2-10)", () => {
+  it("a delivery rider created under one tenant is never visible to another tenant's session", async () => {
+    const restaurantAId = await createRestaurant("Tenant OOO3");
+    const restaurantBId = await createRestaurant("Tenant PPP3");
+    const branchId = await withTenant(db, { restaurantId: restaurantAId }, async (tx) => {
+      const rows = await tx.insert(branches).values({ restaurantId: restaurantAId, name: "Main", timezone: "Asia/Karachi" }).returning({ id: branches.id });
+      const id = rows[0]?.id;
+      if (!id) throw new Error("fixture: branch insert returned no row");
+      return id;
+    });
+
+    await withTenant(db, { restaurantId: restaurantAId }, (tx) => tx.insert(deliveryRiders).values({ restaurantId: restaurantAId, branchId, name: "Zain", phone: "0300" }));
+
+    const seenByB = await withTenant(db, { restaurantId: restaurantBId }, (tx) => tx.select().from(deliveryRiders));
+    expect(seenByB).toEqual([]);
+  });
+
+  it("a delivery_details row created under one tenant is never visible to another tenant's session", async () => {
+    const restaurantAId = await createRestaurant("Tenant QQQ3");
+    const restaurantBId = await createRestaurant("Tenant RRR3");
+    const userAId = await createUser(restaurantAId, "delivery-tenant-a");
+
+    const orderId = await withTenant(db, { restaurantId: restaurantAId }, async (tx) => {
+      const branchRows = await tx.insert(branches).values({ restaurantId: restaurantAId, name: "Main", timezone: "Asia/Karachi" }).returning({ id: branches.id });
+      const branchId = branchRows[0]?.id;
+      if (!branchId) throw new Error("fixture: branch insert returned no row");
+      const orderRows = await tx
+        .insert(orders)
+        .values({ restaurantId: restaurantAId, branchId, orderType: "delivery", currency: "PKR", openedByUserId: userAId })
+        .returning({ id: orders.id });
+      const orderId = orderRows[0]?.id;
+      if (!orderId) throw new Error("fixture: order insert returned no row");
+      return orderId;
+    });
+    await withTenant(db, { restaurantId: restaurantAId }, (tx) =>
+      tx.insert(deliveryDetails).values({ restaurantId: restaurantAId, orderId, customerName: "Ali", customerPhone: "0300", addressLine1: "123 Main St" }),
+    );
+
+    const seenByB = await withTenant(db, { restaurantId: restaurantBId }, (tx) => tx.select().from(deliveryDetails));
+    expect(seenByB).toEqual([]);
+  });
+
+  it("the orderId UNIQUE index actually rejects a second delivery_details row for the same order", async () => {
+    const restaurantId = await createRestaurant("Tenant SSS3");
+    const userId = await createUser(restaurantId, "delivery-dup");
+
+    const orderId = await withTenant(db, { restaurantId }, async (tx) => {
+      const branchRows = await tx.insert(branches).values({ restaurantId, name: "Main", timezone: "Asia/Karachi" }).returning({ id: branches.id });
+      const branchId = branchRows[0]?.id;
+      if (!branchId) throw new Error("fixture: branch insert returned no row");
+      const orderRows = await tx
+        .insert(orders)
+        .values({ restaurantId, branchId, orderType: "delivery", currency: "PKR", openedByUserId: userId })
+        .returning({ id: orders.id });
+      const orderId = orderRows[0]?.id;
+      if (!orderId) throw new Error("fixture: order insert returned no row");
+      return orderId;
+    });
+    await withTenant(db, { restaurantId }, (tx) =>
+      tx.insert(deliveryDetails).values({ restaurantId, orderId, customerName: "Ali", customerPhone: "0300", addressLine1: "123 Main St" }),
+    );
+
+    await expect(
+      withTenant(db, { restaurantId }, (tx) =>
+        tx.insert(deliveryDetails).values({ restaurantId, orderId, customerName: "Ali 2", customerPhone: "0301", addressLine1: "456 Side St" }),
       ),
     ).rejects.toThrow();
   });

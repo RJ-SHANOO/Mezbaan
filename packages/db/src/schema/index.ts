@@ -33,3 +33,5 @@ export { productStockStatus } from "./product-stock-status.js";
 export { floors } from "./floors.js";
 export { diningTables } from "./dining-tables.js";
 export { orders } from "./orders.js";
+export { deliveryRiders } from "./delivery-riders.js";
+export { deliveryDetails } from "./delivery-details.js";
