@@ -34,10 +34,12 @@ async function renderAndFlush(): Promise<void> {
       </QueryClientProvider>,
     );
   });
+  // A macrotask tick, not just chained microtasks: a rejected queryFn needs an
+  // extra hop through React Query's internal state machine before the error
+  // state reaches the DOM, and that hop isn't reliably done after only a fixed
+  // number of microtask turns on every environment (this flaked in CI once).
   await act(async () => {
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
   });
 }
 
