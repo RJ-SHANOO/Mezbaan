@@ -2,6 +2,8 @@ mod db;
 mod device_token;
 mod document_number;
 mod manager_pin_offline;
+mod menu_cache;
+mod menu_commands;
 mod operation_log;
 mod pending_work;
 mod pending_work_commands;
@@ -41,6 +43,10 @@ pub fn run() {
             pending_work_commands::load_pending_work,
             pending_work_commands::clear_pending_work,
             sync_status_commands::get_sync_status,
+            menu_commands::sync_menu,
+            menu_commands::get_menu_categories,
+            menu_commands::get_menu_products,
+            menu_commands::find_menu_product_by_barcode,
             mark_clean_shutdown,
         ])
         .setup(|app| {

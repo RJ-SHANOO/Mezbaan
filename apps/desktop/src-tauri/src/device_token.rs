@@ -1,6 +1,6 @@
 use crate::secure_store;
 
-const DEVICE_TOKEN_ACCOUNT: &str = "device-token";
+pub(crate) const DEVICE_TOKEN_ACCOUNT: &str = "device-token";
 
 /// Invoked by the pairing screen right after `POST /devices/pair` succeeds, to put
 /// the raw device token (api-pos only ever returns it once) into the OS credential

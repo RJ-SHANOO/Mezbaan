@@ -14,7 +14,7 @@ export class SyncSnapshotController {
   @Get("snapshot")
   @UseGuards(DeviceAuthGuard)
   async getSnapshot(@CurrentDevice() device: DeviceRecord): Promise<SyncSnapshotResponse> {
-    return this.syncSnapshotService.buildSnapshot(device.restaurantId);
+    return this.syncSnapshotService.buildSnapshot(device.restaurantId, device.branchId);
   }
 
   /** No auth — it's a public key. Lets ops fetch it once (out of band from any
