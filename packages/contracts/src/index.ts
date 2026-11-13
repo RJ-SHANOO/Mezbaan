@@ -269,6 +269,12 @@ export {
   type OrderItem,
 } from "./order-items.js";
 export {
+  GenerateInvoiceSchema,
+  type GenerateInvoice,
+  InvoiceSchema,
+  type Invoice,
+} from "./invoices.js";
+export {
   CreateDeliveryRiderSchema,
   type CreateDeliveryRider,
   UpdateDeliveryRiderSchema,

@@ -24,6 +24,14 @@ export const devices = pgTable(
     // a DB trigger (see the migration) always assigns the real value before the
     // NOT NULL check runs, whether or not a caller passes one explicitly.
     terminalNumber: integer("terminal_number").notNull().default(sql`NULL`),
+    // P2-18: this device's own counter for invoice document numbers generated
+    // through the server (api-pos), formatted as "B{branch_number}-T{terminal_number}-
+    // {sequence:06}" — the trailing part of that number. Deliberately a separate
+    // counter from the desktop-local SQLite sequence P1-28 built (document_number.rs)
+    // — see invoices.ts's own comment for why the two aren't reconciled yet.
+    // Incremented atomically per invoice via a plain UPDATE ... RETURNING, which
+    // Postgres already serializes correctly for concurrent writers on one row.
+    nextInvoiceSequence: integer("next_invoice_sequence").notNull().default(1),
     // NULL until paired (P1-20 issues the token and sets this). Never store the raw
     // token — only its hash, same as passwordHash on users (rule 20).
     tokenHash: text("token_hash"),

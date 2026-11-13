@@ -264,4 +264,10 @@ export {
   type FireOrderItemsParams,
 } from "./order-items.service.js";
 export { OrderItemsController } from "./order-items.controller.js";
+export {
+  InvoicesService,
+  type InvoiceRecord,
+  type GenerateInvoiceParams,
+} from "./invoices.service.js";
+export { InvoicesController } from "./invoices.controller.js";
 export { OrdersModule } from "./orders.module.js";

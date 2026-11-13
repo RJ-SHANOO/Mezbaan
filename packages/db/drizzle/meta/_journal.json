@@ -183,6 +183,13 @@
       "when": 1794568021875,
       "tag": "0025_shiny_blob",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1794575739639,
+      "tag": "0026_majestic_thanos",
+      "breakpoints": true
     }
   ]
 }

@@ -530,7 +530,8 @@ export class OrdersService {
   }
 }
 
-function computeOrderTotal(items: OrderItemRecord[], currency: string): Money {
+/** Shared with InvoicesService (P2-18) — the same pure domain-math subtotal both OrdersService.getTableTab and invoice generation need. */
+export function computeOrderTotal(items: OrderItemRecord[], currency: string): Money {
   if (items.length === 0) return money(0n, currency);
   const lineTotals = items.map((item) => {
     const base = multiply(money(item.unitPriceMinor, item.currency), item.quantity);

@@ -27,6 +27,7 @@ import {
   deliveryRiders,
   diningTables,
   floors,
+  invoices,
   orderItemModifiers,
   orderItems,
   orders,
@@ -1086,6 +1087,133 @@ describe("order_status_history — tenant isolation (P2-13)", () => {
       withTenant(db, { restaurantId }, (tx) => tx.update(orderStatusHistory).set({ reason: "nope" }).where(eq(orderStatusHistory.orderId, orderId))),
     ).rejects.toThrow();
     await expect(withTenant(db, { restaurantId }, (tx) => tx.delete(orderStatusHistory).where(eq(orderStatusHistory.orderId, orderId)))).rejects.toThrow();
+  });
+});
+
+describe("invoices — tenant isolation and append-only (P2-18)", () => {
+  async function createClosedOrderAndDevice(restaurantId: string, userId: string): Promise<{ branchId: string; orderId: string; deviceId: string }> {
+    return withTenant(db, { restaurantId }, async (tx) => {
+      const branchRows = await tx.insert(branches).values({ restaurantId, name: "Main", timezone: "Asia/Karachi" }).returning({ id: branches.id });
+      const branchId = branchRows[0]?.id;
+      if (!branchId) throw new Error("fixture: branch insert returned no row");
+      const orderRows = await tx
+        .insert(orders)
+        .values({ restaurantId, branchId, orderType: "takeaway", currency: "PKR", openedByUserId: userId, status: "closed" })
+        .returning({ id: orders.id });
+      const orderId = orderRows[0]?.id;
+      if (!orderId) throw new Error("fixture: order insert returned no row");
+      const deviceRows = await tx
+        .insert(devices)
+        .values({ restaurantId, branchId, label: "Till 1", deviceType: "pos_terminal" })
+        .returning({ id: devices.id });
+      const deviceId = deviceRows[0]?.id;
+      if (!deviceId) throw new Error("fixture: device insert returned no row");
+      return { branchId, orderId, deviceId };
+    });
+  }
+
+  it("an invoice created under one tenant is never visible to another tenant's session", async () => {
+    const restaurantAId = await createRestaurant("Tenant III4");
+    const restaurantBId = await createRestaurant("Tenant JJJ4");
+    const userAId = await createUser(restaurantAId, "invoice-tenant-a");
+    const { branchId, orderId, deviceId } = await createClosedOrderAndDevice(restaurantAId, userAId);
+
+    await withTenant(db, { restaurantId: restaurantAId }, (tx) =>
+      tx.insert(invoices).values({
+        restaurantId: restaurantAId,
+        branchId,
+        orderId,
+        deviceId,
+        documentNumber: "B1-T1-000001",
+        subtotalMinor: 1000n,
+        serviceChargeMinor: 0n,
+        taxMinor: 0n,
+        totalMinor: 1000n,
+        currency: "PKR",
+        pricingMode: "exclusive",
+        taxRateBasisPoints: 0,
+        serviceChargeRateBasisPoints: null,
+        appliedTaxRules: [],
+        actorUserId: userAId,
+      }),
+    );
+
+    const seenByB = await withTenant(db, { restaurantId: restaurantBId }, (tx) => tx.select().from(invoices));
+    expect(seenByB).toEqual([]);
+  });
+
+  it("the restaurant-scoped document-number UNIQUE index allows the same number across two different tenants", async () => {
+    const restaurantAId = await createRestaurant("Tenant KKK4");
+    const restaurantBId = await createRestaurant("Tenant LLL4");
+    const userAId = await createUser(restaurantAId, "invoice-docnum-a");
+    const userBId = await createUser(restaurantBId, "invoice-docnum-b");
+    const fixtureA = await createClosedOrderAndDevice(restaurantAId, userAId);
+    const fixtureB = await createClosedOrderAndDevice(restaurantBId, userBId);
+
+    const invoiceValues = (restaurantId: string, fixture: typeof fixtureA, actorUserId: string) => ({
+      restaurantId,
+      branchId: fixture.branchId,
+      orderId: fixture.orderId,
+      deviceId: fixture.deviceId,
+      documentNumber: "B1-T1-000001",
+      subtotalMinor: 1000n,
+      serviceChargeMinor: 0n,
+      taxMinor: 0n,
+      totalMinor: 1000n,
+      currency: "PKR",
+      pricingMode: "exclusive" as const,
+      taxRateBasisPoints: 0,
+      serviceChargeRateBasisPoints: null,
+      appliedTaxRules: [],
+      actorUserId,
+    });
+
+    await withTenant(db, { restaurantId: restaurantAId }, (tx) => tx.insert(invoices).values(invoiceValues(restaurantAId, fixtureA, userAId)));
+    await expect(
+      withTenant(db, { restaurantId: restaurantBId }, (tx) => tx.insert(invoices).values(invoiceValues(restaurantBId, fixtureB, userBId))),
+    ).resolves.toBeDefined();
+
+    // But a genuine duplicate within the SAME tenant is still rejected.
+    await expect(
+      withTenant(db, { restaurantId: restaurantAId }, (tx) => tx.insert(invoices).values(invoiceValues(restaurantAId, fixtureA, userAId))),
+    ).rejects.toThrow();
+  });
+
+  it("UPDATE and DELETE are revoked at the database level", async () => {
+    const restaurantId = await createRestaurant("Tenant MMM4");
+    const userId = await createUser(restaurantId, "invoice-append-only");
+    const { branchId, orderId, deviceId } = await createClosedOrderAndDevice(restaurantId, userId);
+
+    const invoiceId = await withTenant(db, { restaurantId }, async (tx) => {
+      const rows = await tx
+        .insert(invoices)
+        .values({
+          restaurantId,
+          branchId,
+          orderId,
+          deviceId,
+          documentNumber: "B1-T1-000001",
+          subtotalMinor: 1000n,
+          serviceChargeMinor: 0n,
+          taxMinor: 0n,
+          totalMinor: 1000n,
+          currency: "PKR",
+          pricingMode: "exclusive",
+          taxRateBasisPoints: 0,
+          serviceChargeRateBasisPoints: null,
+          appliedTaxRules: [],
+          actorUserId: userId,
+        })
+        .returning({ id: invoices.id });
+      const id = rows[0]?.id;
+      if (!id) throw new Error("fixture: invoice insert returned no row");
+      return id;
+    });
+
+    await expect(
+      withTenant(db, { restaurantId }, (tx) => tx.update(invoices).set({ totalMinor: 9999n }).where(eq(invoices.id, invoiceId))),
+    ).rejects.toThrow();
+    await expect(withTenant(db, { restaurantId }, (tx) => tx.delete(invoices).where(eq(invoices.id, invoiceId)))).rejects.toThrow();
   });
 });
 
