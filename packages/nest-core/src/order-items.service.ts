@@ -26,6 +26,8 @@ export interface OrderItemRecord {
   notes: string | null;
   seatNumber: number | null;
   course: string | null;
+  firedAt: Date | null;
+  firedByUserId: string | null;
   modifiers: OrderItemModifierRecord[];
   createdAt: Date;
   updatedAt: Date;
@@ -62,6 +64,14 @@ export interface RemoveOrderItemParams {
   itemId: string;
 }
 
+export interface FireOrderItemsParams {
+  restaurantId: string;
+  actorUserId: string;
+  orderId: string;
+  itemIds?: string[];
+  course?: string;
+}
+
 const EXACTLY_ONE_REFERENCE = "exactly one of productId or variantId must be set";
 const ORDER_NOT_FOUND = "Order not found";
 const ORDER_NOT_OPEN = "this order is not open";
@@ -69,6 +79,10 @@ const ITEM_NOT_FOUND = "Order item not found";
 const NOT_PRICED = "this item has no price configured for this branch and order type";
 const UNKNOWN_MODIFIER_OPTION = "one of the selected modifier options doesn't exist";
 const MODIFIER_NOT_OFFERED = "one of the selected modifier options isn't offered on this product";
+const FIRE_TARGET_REQUIRED = "exactly one of itemIds or course must be given, and itemIds must not be empty";
+const FIRE_ITEMS_NOT_FOUND = "one or more selected items don't belong to this order";
+const FIRE_COURSE_NOT_FOUND = "no items on this order have that course";
+const ALREADY_FIRED = "every selected item has already been fired to the kitchen";
 
 /**
  * P2-12: "the cart." Every add resolves and snapshots a real price via
@@ -207,6 +221,69 @@ export class OrderItemsService {
         { restaurantId: params.restaurantId, actorUserId: params.actorUserId, action: "order_item.removed", targetType: "order_item", targetId: params.itemId },
         tx,
       );
+    });
+  }
+
+  /**
+   * P2-15: fire either a named set of items, or every item of a course, to
+   * the kitchen. Only items not already fired are actually sent — an item
+   * (or whole course) that's already fully sent raises ALREADY_FIRED rather
+   * than silently re-announcing it, but a *partially* fired course only
+   * fires whatever's left, so firing the same course again after adding a
+   * new item just sends the new one. No "no money fields" kitchen ticket
+   * exists yet (that's P3-02); this is purely the POS-side record of what
+   * was sent and when.
+   */
+  async fireItems(params: FireOrderItemsParams): Promise<OrderItemRecord[]> {
+    if ((params.itemIds !== undefined) === (params.course !== undefined)) {
+      throw new BadRequestException(FIRE_TARGET_REQUIRED);
+    }
+    if (params.itemIds !== undefined && params.itemIds.length === 0) {
+      throw new BadRequestException(FIRE_TARGET_REQUIRED);
+    }
+
+    return withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
+      await this.requireOpenOrder(tx, params.orderId);
+
+      const existingItems = await tx.select().from(schema.orderItems).where(eq(schema.orderItems.orderId, params.orderId));
+
+      let targetItems: typeof existingItems;
+      if (params.itemIds !== undefined) {
+        const existingIds = new Set(existingItems.map((item) => item.id));
+        for (const itemId of params.itemIds) {
+          if (!existingIds.has(itemId)) throw new NotFoundException(FIRE_ITEMS_NOT_FOUND);
+        }
+        const selected = new Set(params.itemIds);
+        targetItems = existingItems.filter((item) => selected.has(item.id));
+      } else {
+        targetItems = existingItems.filter((item) => item.course === params.course);
+        if (targetItems.length === 0) throw new NotFoundException(FIRE_COURSE_NOT_FOUND);
+      }
+
+      const unfiredItems = targetItems.filter((item) => item.firedAt === null);
+      if (unfiredItems.length === 0) throw new BadRequestException(ALREADY_FIRED);
+
+      const firedAt = new Date();
+      const unfiredItemIds = unfiredItems.map((item) => item.id);
+      await tx
+        .update(schema.orderItems)
+        .set({ firedAt, firedByUserId: params.actorUserId, updatedAt: firedAt })
+        .where(inArray(schema.orderItems.id, unfiredItemIds));
+
+      await this.auditLogService.record(
+        {
+          restaurantId: params.restaurantId,
+          actorUserId: params.actorUserId,
+          action: "order_item.fired",
+          targetType: "order",
+          targetId: params.orderId,
+          metadata: { itemIds: unfiredItemIds, course: params.course ?? null },
+        },
+        tx,
+      );
+
+      const firedRows = await tx.select().from(schema.orderItems).where(inArray(schema.orderItems.id, unfiredItemIds));
+      return this.attachModifiers(tx, firedRows);
     });
   }
 

@@ -326,4 +326,110 @@ describe("order items — the cart (api-pos, P2-12)", () => {
     });
     expect(updateByB.statusCode).toBe(404);
   });
+
+  it("fires a named item, and firing it again is rejected (positive control)", async () => {
+    const tenant = await createTenant("item-fire-ok");
+    const productId = await createPricedProduct(tenant, 1500n);
+    const orderId = await createOpenOrder(tenant);
+    const add = await app.inject({ method: "POST", url: `/orders/${orderId}/items`, headers: { authorization: `Bearer ${tenant.accessToken}` }, payload: { productId } });
+    const item = add.json<{ id: string; firedAt: string | null }>();
+    expect(item.firedAt).toBeNull();
+
+    const fire = await app.inject({
+      method: "POST",
+      url: `/orders/${orderId}/items/fire`,
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+      payload: { itemIds: [item.id] },
+    });
+    expect(fire.statusCode).toBe(201);
+    const fired = fire.json<Array<{ id: string; firedAt: string | null }>>();
+    expect(fired).toHaveLength(1);
+    expect(fired[0]?.firedAt).not.toBeNull();
+
+    const refire = await app.inject({
+      method: "POST",
+      url: `/orders/${orderId}/items/fire`,
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+      payload: { itemIds: [item.id] },
+    });
+    expect(refire.statusCode).toBe(400);
+  });
+
+  it("fires by course, leaving other courses un-fired, and only sends newly-added items on a re-fire", async () => {
+    const tenant = await createTenant("item-fire-course");
+    const productId = await createPricedProduct(tenant, 1500n);
+    const orderId = await createOpenOrder(tenant);
+    const starter = (
+      await app.inject({ method: "POST", url: `/orders/${orderId}/items`, headers: { authorization: `Bearer ${tenant.accessToken}` }, payload: { productId, course: "starters" } })
+    ).json<{ id: string }>();
+    const main = (
+      await app.inject({ method: "POST", url: `/orders/${orderId}/items`, headers: { authorization: `Bearer ${tenant.accessToken}` }, payload: { productId, course: "main" } })
+    ).json<{ id: string }>();
+
+    const fireStarters = await app.inject({
+      method: "POST",
+      url: `/orders/${orderId}/items/fire`,
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+      payload: { course: "starters" },
+    });
+    expect(fireStarters.statusCode).toBe(201);
+    expect(fireStarters.json<Array<{ id: string }>>().map((i) => i.id)).toEqual([starter.id]);
+
+    const list = await app.inject({ method: "GET", url: `/orders/${orderId}/items`, headers: { authorization: `Bearer ${tenant.accessToken}` } });
+    expect(list.json<Array<{ id: string; firedAt: string | null }>>().find((i) => i.id === main.id)?.firedAt).toBeNull();
+  });
+
+  it("rejects firing an unknown item, a course with nothing on it, or both/neither of itemIds and course", async () => {
+    const tenant = await createTenant("item-fire-validation");
+    const productId = await createPricedProduct(tenant, 1500n);
+    const orderId = await createOpenOrder(tenant);
+    const item = (
+      await app.inject({ method: "POST", url: `/orders/${orderId}/items`, headers: { authorization: `Bearer ${tenant.accessToken}` }, payload: { productId } })
+    ).json<{ id: string }>();
+
+    const unknownItem = await app.inject({
+      method: "POST",
+      url: `/orders/${orderId}/items/fire`,
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+      payload: { itemIds: [randomUUID()] },
+    });
+    expect(unknownItem.statusCode).toBe(404);
+
+    const emptyCourse = await app.inject({
+      method: "POST",
+      url: `/orders/${orderId}/items/fire`,
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+      payload: { course: "dessert" },
+    });
+    expect(emptyCourse.statusCode).toBe(404);
+
+    const neither = await app.inject({ method: "POST", url: `/orders/${orderId}/items/fire`, headers: { authorization: `Bearer ${tenant.accessToken}` }, payload: {} });
+    expect(neither.statusCode).toBe(400);
+
+    const both = await app.inject({
+      method: "POST",
+      url: `/orders/${orderId}/items/fire`,
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+      payload: { itemIds: [item.id], course: "main" },
+    });
+    expect(both.statusCode).toBe(400);
+  });
+
+  it("one restaurant's token can never fire another restaurant's order items", async () => {
+    const tenantA = await createTenant("item-fire-iso-a");
+    const tenantB = await createTenant("item-fire-iso-b");
+    const productId = await createPricedProduct(tenantA, 1500n);
+    const orderId = await createOpenOrder(tenantA);
+    const item = (
+      await app.inject({ method: "POST", url: `/orders/${orderId}/items`, headers: { authorization: `Bearer ${tenantA.accessToken}` }, payload: { productId } })
+    ).json<{ id: string }>();
+
+    const fireByB = await app.inject({
+      method: "POST",
+      url: `/orders/${orderId}/items/fire`,
+      headers: { authorization: `Bearer ${tenantB.accessToken}` },
+      payload: { itemIds: [item.id] },
+    });
+    expect(fireByB.statusCode).toBe(404);
+  });
 });

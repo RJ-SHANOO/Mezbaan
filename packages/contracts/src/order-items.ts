@@ -27,6 +27,18 @@ export const UpdateOrderItemSchema = z.object({
 });
 export type UpdateOrderItem = z.infer<typeof UpdateOrderItemSchema>;
 
+/** P2-15: fire either a named set of items, or every un-fired item of a course, to the kitchen. */
+export const FireOrderItemsSchema = z
+  .object({
+    itemIds: z.array(z.string().uuid()).min(1).optional(),
+    course: z.string().min(1).optional(),
+  })
+  .refine((data) => (data.itemIds !== undefined) !== (data.course !== undefined), {
+    message: "exactly one of itemIds or course must be given",
+    path: ["itemIds"],
+  });
+export type FireOrderItems = z.infer<typeof FireOrderItemsSchema>;
+
 export const OrderItemModifierSchema = z.object({
   id: z.string().uuid(),
   modifierOptionId: z.string().uuid(),
@@ -49,6 +61,8 @@ export const OrderItemSchema = z.object({
   notes: z.string().nullable(),
   seatNumber: z.number().int().nullable(),
   course: z.string().nullable(),
+  firedAt: z.string().nullable(),
+  firedByUserId: z.string().uuid().nullable(),
   modifiers: z.array(OrderItemModifierSchema),
   createdAt: z.string(),
   updatedAt: z.string(),

@@ -261,6 +261,7 @@ export {
   type AddOrderItemParams,
   type UpdateOrderItemParams,
   type RemoveOrderItemParams,
+  type FireOrderItemsParams,
 } from "./order-items.service.js";
 export { OrderItemsController } from "./order-items.controller.js";
 export { OrdersModule } from "./orders.module.js";

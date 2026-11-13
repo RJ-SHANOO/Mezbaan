@@ -169,6 +169,13 @@
       "when": 1794552931082,
       "tag": "0023_broken_night_nurse",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1794560236993,
+      "tag": "0024_luxuriant_joystick",
+      "breakpoints": true
     }
   ]
 }

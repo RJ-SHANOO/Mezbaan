@@ -349,4 +349,95 @@ describe("OrderItemsService", () => {
 
     expect(await service.list(tenantB.restaurantId, orderA)).toEqual([]);
   });
+
+  describe("fireItems", () => {
+    it("fires a named set of items, stamping firedAt/firedByUserId and auditing it", async () => {
+      const tenant = await createRestaurant("item-fire-by-id");
+      const branchId = await createBranch(tenant.restaurantId);
+      const productId = await createPricedProduct(tenant.restaurantId, tenant.ownerUserId, 1500n);
+      const orderId = await createOpenOrder(tenant.restaurantId, tenant.ownerUserId, branchId);
+      const item = await service.addItem({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, orderId, productId });
+      expect(item.firedAt).toBeNull();
+
+      const [fired] = await service.fireItems({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, orderId, itemIds: [item.id] });
+      expect(fired?.firedAt).not.toBeNull();
+      expect(fired?.firedByUserId).toBe(tenant.ownerUserId);
+
+      const auditRows = await withTenant(db, { restaurantId: tenant.restaurantId }, (tx) => tx.select().from(schema.auditLogs));
+      expect(auditRows.some((row) => row.action === "order_item.fired" && row.targetId === orderId)).toBe(true);
+    });
+
+    it("fires every un-fired item of a course, leaving other courses untouched", async () => {
+      const tenant = await createRestaurant("item-fire-by-course");
+      const branchId = await createBranch(tenant.restaurantId);
+      const productId = await createPricedProduct(tenant.restaurantId, tenant.ownerUserId, 1500n);
+      const orderId = await createOpenOrder(tenant.restaurantId, tenant.ownerUserId, branchId);
+      const starter = await service.addItem({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, orderId, productId, course: "starters" });
+      const main = await service.addItem({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, orderId, productId, course: "main" });
+
+      const fired = await service.fireItems({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, orderId, course: "starters" });
+      expect(fired.map((i) => i.id)).toEqual([starter.id]);
+
+      const listed = await service.list(tenant.restaurantId, orderId);
+      expect(listed.find((i) => i.id === main.id)?.firedAt).toBeNull();
+    });
+
+    it("re-firing a course only sends items added since the last fire", async () => {
+      const tenant = await createRestaurant("item-fire-partial");
+      const branchId = await createBranch(tenant.restaurantId);
+      const productId = await createPricedProduct(tenant.restaurantId, tenant.ownerUserId, 1500n);
+      const orderId = await createOpenOrder(tenant.restaurantId, tenant.ownerUserId, branchId);
+      await service.addItem({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, orderId, productId, course: "main" });
+      await service.fireItems({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, orderId, course: "main" });
+
+      const second = await service.addItem({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, orderId, productId, course: "main" });
+      const fired = await service.fireItems({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, orderId, course: "main" });
+      expect(fired.map((i) => i.id)).toEqual([second.id]);
+    });
+
+    it("rejects firing a course or item set that's already fully fired", async () => {
+      const tenant = await createRestaurant("item-fire-already-fired");
+      const branchId = await createBranch(tenant.restaurantId);
+      const productId = await createPricedProduct(tenant.restaurantId, tenant.ownerUserId, 1500n);
+      const orderId = await createOpenOrder(tenant.restaurantId, tenant.ownerUserId, branchId);
+      const item = await service.addItem({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, orderId, productId });
+      await service.fireItems({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, orderId, itemIds: [item.id] });
+
+      await expect(
+        service.fireItems({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, orderId, itemIds: [item.id] }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it("rejects an item that doesn't belong to the order, a course with no matching items, and neither/both of itemIds+course", async () => {
+      const tenant = await createRestaurant("item-fire-validation");
+      const branchId = await createBranch(tenant.restaurantId);
+      const productId = await createPricedProduct(tenant.restaurantId, tenant.ownerUserId, 1500n);
+      const orderId = await createOpenOrder(tenant.restaurantId, tenant.ownerUserId, branchId);
+      const item = await service.addItem({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, orderId, productId });
+
+      await expect(
+        service.fireItems({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, orderId, itemIds: [randomUUID()] }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      await expect(
+        service.fireItems({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, orderId, course: "dessert" }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      await expect(service.fireItems({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, orderId })).rejects.toBeInstanceOf(BadRequestException);
+      await expect(
+        service.fireItems({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, orderId, itemIds: [item.id], course: "main" }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it("rejects firing on a closed order", async () => {
+      const tenant = await createRestaurant("item-fire-closed-order");
+      const branchId = await createBranch(tenant.restaurantId);
+      const productId = await createPricedProduct(tenant.restaurantId, tenant.ownerUserId, 1500n);
+      const orderId = await createOpenOrder(tenant.restaurantId, tenant.ownerUserId, branchId);
+      const item = await service.addItem({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, orderId, productId });
+      await ordersService.close({ restaurantId: tenant.restaurantId, orderId, actorUserId: tenant.ownerUserId });
+
+      await expect(
+        service.fireItems({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, orderId, itemIds: [item.id] }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+  });
 });

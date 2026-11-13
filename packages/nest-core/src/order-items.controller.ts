@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, UnauthorizedException } from "@nestjs/common";
 import { z } from "zod";
-import { AddOrderItemSchema, UpdateOrderItemSchema, type OrderItem } from "@mezbaan/contracts";
+import { AddOrderItemSchema, FireOrderItemsSchema, UpdateOrderItemSchema, type OrderItem } from "@mezbaan/contracts";
 import { getTenantContext } from "./tenant-context.js";
 import { RequirePermission } from "./permission.decorator.js";
 import { OrderItemsService, type OrderItemRecord } from "./order-items.service.js";
@@ -23,6 +23,8 @@ export function toItemResponse(item: OrderItemRecord): OrderItem {
     notes: item.notes,
     seatNumber: item.seatNumber,
     course: item.course,
+    firedAt: item.firedAt?.toISOString() ?? null,
+    firedByUserId: item.firedByUserId,
     modifiers: item.modifiers.map((m) => ({
       id: m.id,
       modifierOptionId: m.modifierOptionId,
@@ -56,6 +58,23 @@ export class OrderItemsController {
     const request = parseOrBadRequest(AddOrderItemSchema, body);
     const item = await this.orderItemsService.addItem({ ...request, restaurantId: tenant.restaurantId, actorUserId: tenant.userId, orderId });
     return toItemResponse(item);
+  }
+
+  /** P2-15: fire either a named set of items, or every un-fired item of a course, to the kitchen. */
+  @Post("fire")
+  @RequirePermission("pos.sell")
+  async fire(@Param() params: unknown, @Body() body: unknown): Promise<OrderItem[]> {
+    const tenant = requireTenant();
+    const { orderId } = parseOrBadRequest(OrderIdParamSchema, params);
+    const request = parseOrBadRequest(FireOrderItemsSchema, body);
+    const items = await this.orderItemsService.fireItems({
+      restaurantId: tenant.restaurantId,
+      actorUserId: tenant.userId,
+      orderId,
+      itemIds: request.itemIds,
+      course: request.course,
+    });
+    return items.map(toItemResponse);
   }
 
   @Patch(":itemId")

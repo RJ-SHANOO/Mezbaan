@@ -6,6 +6,7 @@ import { productVariants } from "./product-variants.js";
 import { products } from "./products.js";
 import { restaurants } from "./restaurants.js";
 import { tenantMatch } from "./rls.js";
+import { users } from "./users.js";
 
 /**
  * P2-12: "the cart" — one line on an order. Exactly one of productId/
@@ -50,6 +51,13 @@ export const orderItems = pgTable(
     notes: text("notes"),
     seatNumber: integer("seat_number"),
     course: text("course"),
+    // P2-15: when this item was fired to the kitchen, and by whom — both null
+    // until the first fire. Nullable rather than a boolean so "already sent"
+    // (rule 16: never silently track state with no timestamp of its own) is
+    // visible without a second column, and so a later void/reprint feature
+    // (P2-23's job) can tell whether an item ever reached the kitchen at all.
+    firedAt: timestamp("fired_at", { withTimezone: true }),
+    firedByUserId: uuid("fired_by_user_id").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

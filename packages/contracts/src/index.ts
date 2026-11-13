@@ -261,6 +261,8 @@ export {
   type AddOrderItem,
   UpdateOrderItemSchema,
   type UpdateOrderItem,
+  FireOrderItemsSchema,
+  type FireOrderItems,
   OrderItemModifierSchema,
   type OrderItemModifier,
   OrderItemSchema,
