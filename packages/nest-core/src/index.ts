@@ -226,11 +226,18 @@ export {
   OrdersService,
   type OrderStatus,
   type OrderRecord,
+  type OrderStatusHistoryEntry,
+  type OrderTab,
   type CreateOrderParams,
   type ListOrdersParams,
   type OrderActionParams,
+  type TransferTableParams,
+  type MergeTablesParams,
+  type MergeTablesResult,
+  type SplitTableParams,
+  type SplitTableResult,
 } from "./orders.service.js";
-export { OrdersController } from "./orders.controller.js";
+export { OrdersController, TableTabController } from "./orders.controller.js";
 export {
   DeliveryRidersService,
   type DeliveryRiderRecord,

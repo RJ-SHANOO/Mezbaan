@@ -30,6 +30,7 @@ import {
   orderItemModifiers,
   orderItems,
   orders,
+  orderStatusHistory,
   productStockStatus,
   restaurants,
   roles,
@@ -985,6 +986,58 @@ describe("orders — tenant isolation (P2-09)", () => {
         tx.insert(orders).values({ restaurantId, branchId, orderType: "takeaway", currency: "PKR", tableId, openedByUserId: userId }),
       ),
     ).rejects.toThrow();
+  });
+});
+
+describe("order_status_history — tenant isolation (P2-13)", () => {
+  it("a status history row created under one tenant is never visible to another tenant's session", async () => {
+    const restaurantAId = await createRestaurant("Tenant SSS3");
+    const restaurantBId = await createRestaurant("Tenant TTT3");
+    const userAId = await createUser(restaurantAId, "order-history-tenant-a");
+
+    const { orderId } = await withTenant(db, { restaurantId: restaurantAId }, async (tx) => {
+      const branchRows = await tx.insert(branches).values({ restaurantId: restaurantAId, name: "Main", timezone: "Asia/Karachi" }).returning({ id: branches.id });
+      const branchId = branchRows[0]?.id;
+      if (!branchId) throw new Error("fixture: branch insert returned no row");
+      const orderRows = await tx
+        .insert(orders)
+        .values({ restaurantId: restaurantAId, branchId, orderType: "takeaway", currency: "PKR", openedByUserId: userAId })
+        .returning({ id: orders.id });
+      const orderId = orderRows[0]?.id;
+      if (!orderId) throw new Error("fixture: order insert returned no row");
+      return { orderId };
+    });
+
+    await withTenant(db, { restaurantId: restaurantAId }, (tx) =>
+      tx.insert(orderStatusHistory).values({ restaurantId: restaurantAId, orderId, fromStatus: null, toStatus: "open", actorUserId: userAId }),
+    );
+
+    const seenByB = await withTenant(db, { restaurantId: restaurantBId }, (tx) => tx.select().from(orderStatusHistory));
+    expect(seenByB).toEqual([]);
+  });
+
+  it("UPDATE and DELETE are revoked at the database level", async () => {
+    const restaurantId = await createRestaurant("Tenant UUU3");
+    const userId = await createUser(restaurantId, "order-history-append-only");
+
+    const { orderId } = await withTenant(db, { restaurantId }, async (tx) => {
+      const branchRows = await tx.insert(branches).values({ restaurantId, name: "Main", timezone: "Asia/Karachi" }).returning({ id: branches.id });
+      const branchId = branchRows[0]?.id;
+      if (!branchId) throw new Error("fixture: branch insert returned no row");
+      const orderRows = await tx
+        .insert(orders)
+        .values({ restaurantId, branchId, orderType: "takeaway", currency: "PKR", openedByUserId: userId })
+        .returning({ id: orders.id });
+      const orderId = orderRows[0]?.id;
+      if (!orderId) throw new Error("fixture: order insert returned no row");
+      await tx.insert(orderStatusHistory).values({ restaurantId, orderId, fromStatus: null, toStatus: "open", actorUserId: userId });
+      return { orderId };
+    });
+
+    await expect(
+      withTenant(db, { restaurantId }, (tx) => tx.update(orderStatusHistory).set({ reason: "nope" }).where(eq(orderStatusHistory.orderId, orderId))),
+    ).rejects.toThrow();
+    await expect(withTenant(db, { restaurantId }, (tx) => tx.delete(orderStatusHistory).where(eq(orderStatusHistory.orderId, orderId)))).rejects.toThrow();
   });
 });
 

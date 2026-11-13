@@ -35,5 +35,6 @@ export { diningTables } from "./dining-tables.js";
 export { orders } from "./orders.js";
 export { orderItems } from "./order-items.js";
 export { orderItemModifiers } from "./order-item-modifiers.js";
+export { orderStatusHistory } from "./order-status-history.js";
 export { deliveryRiders } from "./delivery-riders.js";
 export { deliveryDetails } from "./delivery-details.js";

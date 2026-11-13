@@ -15,11 +15,10 @@ import { users } from "./users.js";
  * filtering) — OrdersService enforces the same rule before insert, but a
  * stray write that skipped the service would still be caught here.
  *
- * `status` is deliberately minimal (open/closed/cancelled) with no
- * transition validation — that's P2-13's job ("Build order state machine
- * and status history in packages/domain, rejecting illegal transitions").
- * This is a plain settable field for now, same convention as P2-07's
- * dining_tables.status before any state machine existed for it either.
+ * `status` (open/held/closed/cancelled — "held" added by P2-14 for a parked
+ * ticket) has no DB-level transition constraint; packages/domain's state
+ * machine (P2-13) is the real guard, enforced by OrdersService before every
+ * update.
  *
  * No line items here — "the cart" (quantities, modifiers, notes, seat/course
  * assignment) is P2-12's job specifically; this task is about the order's
@@ -37,7 +36,7 @@ export const orders = pgTable(
       .references(() => branches.id),
     orderType: text("order_type", { enum: ["dine_in", "takeaway", "delivery"] }).notNull(),
     tableId: uuid("table_id").references(() => diningTables.id),
-    status: text("status", { enum: ["open", "closed", "cancelled"] })
+    status: text("status", { enum: ["open", "held", "closed", "cancelled"] })
       .notNull()
       .default("open"),
     currency: text("currency").notNull(),

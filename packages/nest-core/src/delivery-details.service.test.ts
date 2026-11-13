@@ -6,7 +6,9 @@ import type { Pool } from "pg";
 import { AuditLogService } from "./audit-log.service.js";
 import { DeliveryDetailsService } from "./delivery-details.service.js";
 import { DeliveryRidersService } from "./delivery-riders.service.js";
+import { OrderItemsService } from "./order-items.service.js";
 import { OrdersService } from "./orders.service.js";
+import { PriceResolutionService } from "./price-resolution.service.js";
 
 const APP_DATABASE_URL =
   process.env.APP_DATABASE_URL ?? "postgres://mezbaan_app:mezbaan_app_dev_password@localhost:5433/mezbaan";
@@ -23,7 +25,9 @@ beforeAll(() => {
   const auditLogService = new AuditLogService(db);
   service = new DeliveryDetailsService(db, auditLogService);
   ridersService = new DeliveryRidersService(db, auditLogService);
-  ordersService = new OrdersService(db, auditLogService);
+  const priceResolutionService = new PriceResolutionService(db);
+  const orderItemsService = new OrderItemsService(db, auditLogService, priceResolutionService);
+  ordersService = new OrdersService(db, auditLogService, orderItemsService);
 });
 
 afterAll(async () => {

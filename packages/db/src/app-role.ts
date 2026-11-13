@@ -22,6 +22,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE O
 -- Runs every migrate:run, idempotently — revoking an already-revoked privilege is a
 -- no-op. Add a line here whenever a new append-only table is introduced.
 REVOKE UPDATE, DELETE ON audit_logs FROM mezbaan_app;
+REVOKE UPDATE, DELETE ON order_status_history FROM mezbaan_app;
 
 -- Commission rate locked at registration (rule 7): revoke the blanket UPDATE the
 -- broad grant above just gave and re-grant it only for the columns allowed to change

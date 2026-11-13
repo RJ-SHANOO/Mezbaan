@@ -9,7 +9,7 @@ import { parseOrBadRequest } from "./validation.js";
 const OrderIdParamSchema = z.object({ orderId: z.string().uuid() });
 const ItemIdParamSchema = z.object({ orderId: z.string().uuid(), itemId: z.string().uuid() });
 
-function toItemResponse(item: OrderItemRecord): OrderItem {
+export function toItemResponse(item: OrderItemRecord): OrderItem {
   return {
     id: item.id,
     orderId: item.orderId,

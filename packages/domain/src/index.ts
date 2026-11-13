@@ -22,3 +22,9 @@ export { BASIS_POINTS_SCALE, applyPercentage } from "./percentage.js";
 export { type TaxBreakdown, calculateExclusiveTax, calculateInclusiveTax } from "./tax.js";
 export { type DiscountResult, applyPercentageDiscount, applyFixedDiscount } from "./discount.js";
 export { calculateServiceCharge } from "./service-charge.js";
+export {
+  type OrderStatus,
+  IllegalOrderStatusTransitionError,
+  canTransitionOrderStatus,
+  assertCanTransitionOrderStatus,
+} from "./order-state-machine.js";

@@ -6,7 +6,7 @@ import { DeliveryRidersController } from "./delivery-riders.controller.js";
 import { DeliveryRidersService } from "./delivery-riders.service.js";
 import { OrderItemsController } from "./order-items.controller.js";
 import { OrderItemsService } from "./order-items.service.js";
-import { OrdersController } from "./orders.controller.js";
+import { OrdersController, TableTabController } from "./orders.controller.js";
 import { OrdersService } from "./orders.service.js";
 import { PriceResolutionService } from "./price-resolution.service.js";
 
@@ -24,7 +24,7 @@ export class OrdersModule {
   static forRoot(): DynamicModule {
     return {
       module: OrdersModule,
-      controllers: [OrdersController, DeliveryRidersController, DeliveryDetailsController, OrderItemsController],
+      controllers: [OrdersController, TableTabController, DeliveryRidersController, DeliveryDetailsController, OrderItemsController],
       providers: [OrdersService, DeliveryRidersService, DeliveryDetailsService, OrderItemsService, PriceResolutionService, AuditLogService],
       exports: [OrdersService, DeliveryRidersService, DeliveryDetailsService, OrderItemsService],
     };

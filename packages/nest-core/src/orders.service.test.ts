@@ -4,9 +4,15 @@ import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { createDb, createPool, schema, withTenant, type Database } from "@mezbaan/db";
 import type { Pool } from "pg";
 import { AuditLogService } from "./audit-log.service.js";
+import { CategoriesService } from "./categories.service.js";
 import { DiningTablesService } from "./dining-tables.service.js";
 import { FloorsService } from "./floors.service.js";
+import { OrderItemsService } from "./order-items.service.js";
 import { OrdersService } from "./orders.service.js";
+import { PriceListItemsService } from "./price-list-items.service.js";
+import { PriceListsService } from "./price-lists.service.js";
+import { PriceResolutionService } from "./price-resolution.service.js";
+import { ProductsService } from "./products.service.js";
 
 const APP_DATABASE_URL =
   process.env.APP_DATABASE_URL ?? "postgres://mezbaan_app:mezbaan_app_dev_password@localhost:5433/mezbaan";
@@ -16,14 +22,25 @@ let db: Database;
 let service: OrdersService;
 let floorsService: FloorsService;
 let tablesService: DiningTablesService;
+let orderItemsService: OrderItemsService;
+let categoriesService: CategoriesService;
+let productsService: ProductsService;
+let priceListsService: PriceListsService;
+let priceListItemsService: PriceListItemsService;
 
 beforeAll(() => {
   pool = createPool(APP_DATABASE_URL);
   db = createDb(pool);
   const auditLogService = new AuditLogService(db);
-  service = new OrdersService(db, auditLogService);
+  const priceResolutionService = new PriceResolutionService(db);
+  orderItemsService = new OrderItemsService(db, auditLogService, priceResolutionService);
+  service = new OrdersService(db, auditLogService, orderItemsService);
   floorsService = new FloorsService(db, auditLogService);
   tablesService = new DiningTablesService(db, auditLogService);
+  categoriesService = new CategoriesService(db, auditLogService);
+  productsService = new ProductsService(db, auditLogService);
+  priceListsService = new PriceListsService(db, auditLogService);
+  priceListItemsService = new PriceListItemsService(db, auditLogService);
 });
 
 afterAll(async () => {
@@ -69,10 +86,19 @@ async function createBranch(restaurantId: string): Promise<string> {
   return branch.id;
 }
 
-async function createTable(restaurantId: string, ownerUserId: string, branchId: string): Promise<string> {
+async function createTable(restaurantId: string, ownerUserId: string, branchId: string, name = "T1"): Promise<string> {
   const floor = await floorsService.create({ restaurantId, actorUserId: ownerUserId, branchId, name: "Ground Floor" });
-  const table = await tablesService.create({ restaurantId, actorUserId: ownerUserId, floorId: floor.id, name: "T1" });
+  const table = await tablesService.create({ restaurantId, actorUserId: ownerUserId, floorId: floor.id, name });
   return table.id;
+}
+
+async function createPricedProduct(restaurantId: string, actorUserId: string, unitPriceMinor: bigint, currency = "PKR"): Promise<string> {
+  const category = await categoriesService.create({ restaurantId, actorUserId, name: "Burgers" });
+  const product = await productsService.create({ restaurantId, actorUserId, categoryId: category.id, name: "Cheeseburger" });
+  const priceList = await priceListsService.create({ restaurantId, actorUserId, name: `List-${randomUUID()}`, currency });
+  await priceListItemsService.setPrice({ restaurantId, actorUserId, priceListId: priceList.id, productId: product.id, unitPriceMinor });
+  await priceListsService.publish({ restaurantId, actorUserId, priceListId: priceList.id });
+  return product.id;
 }
 
 describe("OrdersService", () => {
@@ -194,5 +220,242 @@ describe("OrdersService", () => {
 
     const closedOrders = await service.list({ restaurantId: tenant.restaurantId, status: "closed" });
     expect(closedOrders.map((o) => o.id)).toContain(openOrder.id);
+  });
+
+  it("records status history on open and close, in order", async () => {
+    const tenant = await createRestaurant("order-status-history");
+    const branchId = await createBranch(tenant.restaurantId);
+
+    const order = await service.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, branchId, orderType: "takeaway", currency: "PKR" });
+    await service.close({ restaurantId: tenant.restaurantId, orderId: order.id, actorUserId: tenant.ownerUserId });
+
+    const history = await service.getStatusHistory({ restaurantId: tenant.restaurantId, orderId: order.id });
+    expect(history.map((h) => [h.fromStatus, h.toStatus])).toEqual([
+      [null, "open"],
+      ["open", "closed"],
+    ]);
+  });
+
+  it("rejects cancelling an already-closed order (closed is a dead end, not just not-open)", async () => {
+    const tenant = await createRestaurant("order-closed-no-cancel");
+    const branchId = await createBranch(tenant.restaurantId);
+
+    const order = await service.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, branchId, orderType: "takeaway", currency: "PKR" });
+    await service.close({ restaurantId: tenant.restaurantId, orderId: order.id, actorUserId: tenant.ownerUserId });
+
+    await expect(service.cancel({ restaurantId: tenant.restaurantId, orderId: order.id, actorUserId: tenant.ownerUserId })).rejects.toThrow(BadRequestException);
+  });
+
+  it("holds a dine-in order without freeing its table, then recalls it back to open", async () => {
+    const tenant = await createRestaurant("order-hold-recall-dinein");
+    const branchId = await createBranch(tenant.restaurantId);
+    const tableId = await createTable(tenant.restaurantId, tenant.ownerUserId, branchId);
+
+    const order = await service.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, branchId, orderType: "dine_in", currency: "PKR", tableId });
+
+    const held = await service.hold({ restaurantId: tenant.restaurantId, orderId: order.id, actorUserId: tenant.ownerUserId, reason: "Serving another table" });
+    expect(held.status).toBe("held");
+    expect(held.closedAt).toBeNull();
+
+    const tablesWhileHeld = await tablesService.list(tenant.restaurantId, branchId);
+    expect(tablesWhileHeld.find((t) => t.id === tableId)?.status).toBe("occupied");
+
+    // a second dine-in order on the same table is still rejected while the first is only held
+    await expect(
+      service.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, branchId, orderType: "dine_in", currency: "PKR", tableId }),
+    ).rejects.toThrow(BadRequestException);
+
+    const recalled = await service.recall({ restaurantId: tenant.restaurantId, orderId: order.id, actorUserId: tenant.ownerUserId });
+    expect(recalled.status).toBe("open");
+
+    const closed = await service.close({ restaurantId: tenant.restaurantId, orderId: order.id, actorUserId: tenant.ownerUserId });
+    expect(closed.status).toBe("closed");
+    const tablesAfterClose = await tablesService.list(tenant.restaurantId, branchId);
+    expect(tablesAfterClose.find((t) => t.id === tableId)?.status).toBe("available");
+
+    const history = await service.getStatusHistory({ restaurantId: tenant.restaurantId, orderId: order.id });
+    expect(history.map((h) => [h.fromStatus, h.toStatus])).toEqual([
+      [null, "open"],
+      ["open", "held"],
+      ["held", "open"],
+      ["open", "closed"],
+    ]);
+  });
+
+  it("rejects closing a held order directly, and rejects recalling an order that was never held", async () => {
+    const tenant = await createRestaurant("order-held-no-direct-close");
+    const branchId = await createBranch(tenant.restaurantId);
+
+    const order = await service.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, branchId, orderType: "takeaway", currency: "PKR" });
+    await expect(service.recall({ restaurantId: tenant.restaurantId, orderId: order.id, actorUserId: tenant.ownerUserId })).rejects.toThrow(BadRequestException);
+
+    await service.hold({ restaurantId: tenant.restaurantId, orderId: order.id, actorUserId: tenant.ownerUserId });
+    await expect(service.close({ restaurantId: tenant.restaurantId, orderId: order.id, actorUserId: tenant.ownerUserId })).rejects.toThrow(BadRequestException);
+
+    const cancelled = await service.cancel({ restaurantId: tenant.restaurantId, orderId: order.id, actorUserId: tenant.ownerUserId });
+    expect(cancelled.status).toBe("cancelled");
+  });
+
+  it("returns a table's running tab: null when empty, then the open order's items and total", async () => {
+    const tenant = await createRestaurant("order-table-tab");
+    const branchId = await createBranch(tenant.restaurantId);
+    const tableId = await createTable(tenant.restaurantId, tenant.ownerUserId, branchId);
+
+    const empty = await service.getTableTab({ restaurantId: tenant.restaurantId, tableId });
+    expect(empty).toEqual({ tableId, order: null, items: [], total: null });
+
+    const order = await service.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, branchId, orderType: "dine_in", currency: "PKR", tableId });
+    await service.hold({ restaurantId: tenant.restaurantId, orderId: order.id, actorUserId: tenant.ownerUserId });
+
+    const whileHeld = await service.getTableTab({ restaurantId: tenant.restaurantId, tableId });
+    expect(whileHeld.order?.id).toBe(order.id);
+    expect(whileHeld.items).toEqual([]);
+    expect(whileHeld.total).toEqual({ amountMinor: 0n, currency: "PKR" });
+  });
+
+  it("transfers a dine-in order to a free table, freeing the old one and occupying the new one", async () => {
+    const tenant = await createRestaurant("order-transfer");
+    const branchId = await createBranch(tenant.restaurantId);
+    const tableA = await createTable(tenant.restaurantId, tenant.ownerUserId, branchId, "T1");
+    const tableB = await createTable(tenant.restaurantId, tenant.ownerUserId, branchId, "T2");
+
+    const order = await service.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, branchId, orderType: "dine_in", currency: "PKR", tableId: tableA });
+
+    const transferred = await service.transferTable({ restaurantId: tenant.restaurantId, orderId: order.id, actorUserId: tenant.ownerUserId, targetTableId: tableB });
+    expect(transferred.tableId).toBe(tableB);
+    expect(transferred.status).toBe("open");
+
+    const tables = await tablesService.list(tenant.restaurantId, branchId);
+    expect(tables.find((t) => t.id === tableA)?.status).toBe("available");
+    expect(tables.find((t) => t.id === tableB)?.status).toBe("occupied");
+
+    const auditRows = await withTenant(db, { restaurantId: tenant.restaurantId }, (tx) => tx.select().from(schema.auditLogs));
+    expect(auditRows.some((row) => row.action === "order.table_transferred" && row.targetId === order.id)).toBe(true);
+  });
+
+  it("rejects transferring a takeaway order, a closed order, or onto an already-occupied table", async () => {
+    const tenant = await createRestaurant("order-transfer-rejections");
+    const branchId = await createBranch(tenant.restaurantId);
+    const tableA = await createTable(tenant.restaurantId, tenant.ownerUserId, branchId, "T1");
+    const tableB = await createTable(tenant.restaurantId, tenant.ownerUserId, branchId, "T2");
+
+    const takeaway = await service.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, branchId, orderType: "takeaway", currency: "PKR" });
+    await expect(
+      service.transferTable({ restaurantId: tenant.restaurantId, orderId: takeaway.id, actorUserId: tenant.ownerUserId, targetTableId: tableB }),
+    ).rejects.toThrow(BadRequestException);
+
+    const dineIn = await service.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, branchId, orderType: "dine_in", currency: "PKR", tableId: tableA });
+    await service.close({ restaurantId: tenant.restaurantId, orderId: dineIn.id, actorUserId: tenant.ownerUserId });
+    await expect(
+      service.transferTable({ restaurantId: tenant.restaurantId, orderId: dineIn.id, actorUserId: tenant.ownerUserId, targetTableId: tableB }),
+    ).rejects.toThrow(BadRequestException);
+
+    const tableC = await createTable(tenant.restaurantId, tenant.ownerUserId, branchId, "T3");
+    const order = await service.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, branchId, orderType: "dine_in", currency: "PKR", tableId: tableC });
+    await service.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, branchId, orderType: "dine_in", currency: "PKR", tableId: tableB });
+    await expect(
+      service.transferTable({ restaurantId: tenant.restaurantId, orderId: order.id, actorUserId: tenant.ownerUserId, targetTableId: tableB }),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it("merges one table's order into another's, moving items, cancelling the source order and freeing its table", async () => {
+    const tenant = await createRestaurant("order-merge");
+    const branchId = await createBranch(tenant.restaurantId);
+    const tableA = await createTable(tenant.restaurantId, tenant.ownerUserId, branchId, "T1");
+    const tableB = await createTable(tenant.restaurantId, tenant.ownerUserId, branchId, "T2");
+    const productId = await createPricedProduct(tenant.restaurantId, tenant.ownerUserId, 1000n);
+
+    const orderA = await service.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, branchId, orderType: "dine_in", currency: "PKR", tableId: tableA });
+    const orderB = await service.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, branchId, orderType: "dine_in", currency: "PKR", tableId: tableB });
+    const item = await orderItemsService.addItem({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, orderId: orderA.id, productId });
+
+    const result = await service.mergeTables({ restaurantId: tenant.restaurantId, orderId: orderA.id, actorUserId: tenant.ownerUserId, targetTableId: tableB });
+    expect(result.targetOrder.id).toBe(orderB.id);
+    expect(result.sourceOrderId).toBe(orderA.id);
+
+    const movedItems = await orderItemsService.list(tenant.restaurantId, orderB.id);
+    expect(movedItems.map((i) => i.id)).toEqual([item.id]);
+
+    const tables = await tablesService.list(tenant.restaurantId, branchId);
+    expect(tables.find((t) => t.id === tableA)?.status).toBe("available");
+    expect(tables.find((t) => t.id === tableB)?.status).toBe("occupied");
+
+    const history = await service.getStatusHistory({ restaurantId: tenant.restaurantId, orderId: orderA.id });
+    expect(history.at(-1)?.toStatus).toBe("cancelled");
+
+    const auditRows = await withTenant(db, { restaurantId: tenant.restaurantId }, (tx) => tx.select().from(schema.auditLogs));
+    expect(auditRows.some((row) => row.action === "order.tables_merged" && row.targetId === orderB.id)).toBe(true);
+  });
+
+  it("rejects merging onto a table with no open or held order, or merging a table into itself", async () => {
+    const tenant = await createRestaurant("order-merge-rejections");
+    const branchId = await createBranch(tenant.restaurantId);
+    const tableA = await createTable(tenant.restaurantId, tenant.ownerUserId, branchId, "T1");
+    const tableB = await createTable(tenant.restaurantId, tenant.ownerUserId, branchId, "T2");
+
+    const orderA = await service.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, branchId, orderType: "dine_in", currency: "PKR", tableId: tableA });
+
+    await expect(
+      service.mergeTables({ restaurantId: tenant.restaurantId, orderId: orderA.id, actorUserId: tenant.ownerUserId, targetTableId: tableB }),
+    ).rejects.toThrow(BadRequestException);
+    await expect(
+      service.mergeTables({ restaurantId: tenant.restaurantId, orderId: orderA.id, actorUserId: tenant.ownerUserId, targetTableId: tableA }),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it("splits selected items off a table's order onto a new order at a free table, leaving the rest behind", async () => {
+    const tenant = await createRestaurant("order-split");
+    const branchId = await createBranch(tenant.restaurantId);
+    const tableA = await createTable(tenant.restaurantId, tenant.ownerUserId, branchId, "T1");
+    const tableB = await createTable(tenant.restaurantId, tenant.ownerUserId, branchId, "T2");
+    const productId = await createPricedProduct(tenant.restaurantId, tenant.ownerUserId, 1000n);
+
+    const order = await service.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, branchId, orderType: "dine_in", currency: "PKR", tableId: tableA });
+    const keptItem = await orderItemsService.addItem({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, orderId: order.id, productId });
+    const movedItem = await orderItemsService.addItem({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, orderId: order.id, productId });
+
+    const result = await service.splitTable({
+      restaurantId: tenant.restaurantId,
+      orderId: order.id,
+      actorUserId: tenant.ownerUserId,
+      targetTableId: tableB,
+      itemIds: [movedItem.id],
+    });
+    expect(result.newOrder.tableId).toBe(tableB);
+    expect(result.newOrder.status).toBe("open");
+    expect(result.sourceOrder.id).toBe(order.id);
+
+    const remaining = await orderItemsService.list(tenant.restaurantId, order.id);
+    expect(remaining.map((i) => i.id)).toEqual([keptItem.id]);
+    const moved = await orderItemsService.list(tenant.restaurantId, result.newOrder.id);
+    expect(moved.map((i) => i.id)).toEqual([movedItem.id]);
+
+    const tables = await tablesService.list(tenant.restaurantId, branchId);
+    expect(tables.find((t) => t.id === tableA)?.status).toBe("occupied");
+    expect(tables.find((t) => t.id === tableB)?.status).toBe("occupied");
+
+    const auditRows = await withTenant(db, { restaurantId: tenant.restaurantId }, (tx) => tx.select().from(schema.auditLogs));
+    expect(auditRows.some((row) => row.action === "order.split" && row.targetId === order.id)).toBe(true);
+  });
+
+  it("rejects splitting with no items, with an item that isn't on the order, or moving every item off the order", async () => {
+    const tenant = await createRestaurant("order-split-rejections");
+    const branchId = await createBranch(tenant.restaurantId);
+    const tableA = await createTable(tenant.restaurantId, tenant.ownerUserId, branchId, "T1");
+    const tableB = await createTable(tenant.restaurantId, tenant.ownerUserId, branchId, "T2");
+    const productId = await createPricedProduct(tenant.restaurantId, tenant.ownerUserId, 1000n);
+
+    const order = await service.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, branchId, orderType: "dine_in", currency: "PKR", tableId: tableA });
+    const item = await orderItemsService.addItem({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, orderId: order.id, productId });
+
+    await expect(
+      service.splitTable({ restaurantId: tenant.restaurantId, orderId: order.id, actorUserId: tenant.ownerUserId, targetTableId: tableB, itemIds: [] }),
+    ).rejects.toThrow(BadRequestException);
+    await expect(
+      service.splitTable({ restaurantId: tenant.restaurantId, orderId: order.id, actorUserId: tenant.ownerUserId, targetTableId: tableB, itemIds: [randomUUID()] }),
+    ).rejects.toThrow(NotFoundException);
+    await expect(
+      service.splitTable({ restaurantId: tenant.restaurantId, orderId: order.id, actorUserId: tenant.ownerUserId, targetTableId: tableB, itemIds: [item.id] }),
+    ).rejects.toThrow(BadRequestException);
   });
 });
