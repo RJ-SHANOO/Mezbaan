@@ -69,3 +69,10 @@ export function getModifierGroupsForProduct(productId: string): Promise<Modifier
 export function syncMenu(): Promise<string> {
   return invoke<string>("sync_menu", { apiBaseUrl: API_POS_BASE_URL, publicKeyPem: SYNC_PUBLIC_KEY_PEM });
 }
+
+/** P2-17: the "prices as of" version from the last successful sync_menu, read
+ * straight from local storage — no network call, so it's available immediately
+ * on mount even before (or if) this session's own sync_menu resolves. */
+export function getMenuSyncVersion(): Promise<string | null> {
+  return invoke<string | null>("get_menu_sync_version");
+}

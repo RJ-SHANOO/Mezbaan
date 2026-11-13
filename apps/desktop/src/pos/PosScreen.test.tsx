@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -10,12 +10,14 @@ const getMenuCategoriesMock = vi.fn();
 const getMenuProductsMock = vi.fn();
 const findMenuProductByBarcodeMock = vi.fn();
 const syncMenuMock = vi.fn();
+const getMenuSyncVersionMock = vi.fn();
 const getModifierGroupsForProductMock = vi.fn();
 vi.mock("../shared/menu-client.js", () => ({
   getMenuCategories: (...args: unknown[]) => getMenuCategoriesMock(...args),
   getMenuProducts: (...args: unknown[]) => getMenuProductsMock(...args),
   findMenuProductByBarcode: (...args: unknown[]) => findMenuProductByBarcodeMock(...args),
   syncMenu: (...args: unknown[]) => syncMenuMock(...args),
+  getMenuSyncVersion: (...args: unknown[]) => getMenuSyncVersionMock(...args),
   getModifierGroupsForProduct: (...args: unknown[]) => getModifierGroupsForProductMock(...args),
 }));
 
@@ -45,6 +47,13 @@ async function renderAndFlush(): Promise<void> {
   });
 }
 
+// getMenuSyncVersion is called unconditionally on every mount (P2-17's "last
+// known version" seed) — give it a harmless default so tests that don't care
+// about it don't have to set one themselves on top of their syncMenu mock.
+beforeEach(() => {
+  getMenuSyncVersionMock.mockResolvedValue(null);
+});
+
 afterEach(() => {
   act(() => {
     root?.unmount();
@@ -56,6 +65,7 @@ afterEach(() => {
   getMenuProductsMock.mockReset();
   findMenuProductByBarcodeMock.mockReset();
   syncMenuMock.mockReset();
+  getMenuSyncVersionMock.mockReset();
   getModifierGroupsForProductMock.mockReset();
 });
 
@@ -83,6 +93,46 @@ describe("PosScreen", () => {
 
     expect(container?.textContent).toContain("Menu may be out of date");
     expect(container?.textContent).toContain("offline");
+  });
+
+  it("P2-17: shows 'Syncing prices…' while the background sync is in flight, then the fresh version once it resolves", async () => {
+    getMenuCategoriesMock.mockResolvedValue([]);
+    getMenuProductsMock.mockResolvedValue([]);
+    let resolveSync: (version: string) => void = () => {};
+    syncMenuMock.mockReturnValue(new Promise<string>((resolve) => (resolveSync = resolve)));
+
+    await renderAndFlush();
+    expect(container?.textContent).toContain("Syncing prices…");
+
+    await act(async () => {
+      resolveSync("2026-02-02T10:00:00.000Z");
+      await Promise.resolve();
+    });
+
+    expect(container?.textContent).not.toContain("Syncing prices…");
+    expect(container?.textContent).toContain("Prices as of");
+  });
+
+  it("P2-17: falls back to the last known price version when this session's sync fails", async () => {
+    getMenuCategoriesMock.mockResolvedValue([]);
+    getMenuProductsMock.mockResolvedValue([]);
+    getMenuSyncVersionMock.mockResolvedValue("2026-01-01T00:00:00.000Z");
+    syncMenuMock.mockRejectedValue(new Error("offline"));
+
+    await renderAndFlush();
+
+    expect(container?.textContent).toContain("Prices as of");
+  });
+
+  it("P2-17: shows 'Prices not yet synced' when there's no prior version and this session's sync also fails", async () => {
+    getMenuCategoriesMock.mockResolvedValue([]);
+    getMenuProductsMock.mockResolvedValue([]);
+    getMenuSyncVersionMock.mockResolvedValue(null);
+    syncMenuMock.mockRejectedValue(new Error("offline"));
+
+    await renderAndFlush();
+
+    expect(container?.textContent).toContain("Prices not yet synced");
   });
 
   it("shows an error state when the local cache itself can't be read", async () => {

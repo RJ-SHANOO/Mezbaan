@@ -9,6 +9,12 @@ use std::fmt;
 
 const LAST_SUCCESSFUL_SYNC_AT_KEY: &str = "sync_last_successful_at";
 const LAST_ATTEMPT_ONLINE_KEY: &str = "sync_last_attempt_online";
+/// P2-17: the server stamps a snapshot's `version` as the moment it was built
+/// (`new Date().toISOString()`, see SyncSnapshotService) — not a counter, so
+/// this is really "prices as of" rather than a schema/edition number. Stored
+/// here (not alongside the menu cache itself) so it survives a PosScreen
+/// remount or error-boundary reset without depending on menu_cache.rs at all.
+const MENU_SNAPSHOT_VERSION_KEY: &str = "menu_snapshot_version";
 
 #[derive(Debug)]
 pub enum SyncStatusError {
@@ -64,6 +70,20 @@ pub fn record_sync_attempt(conn: &Connection, succeeded: bool) -> Result<(), Syn
         )?;
     }
     Ok(())
+}
+
+/// P2-17: called by menu_commands::sync_menu after a snapshot is successfully
+/// ingested, so get_menu_sync_version reflects it on every later read — including
+/// after this terminal restarts, long before any new sync_menu call resolves.
+pub fn record_menu_sync_version(conn: &Connection, version: &str) -> Result<(), SyncStatusError> {
+    set_metadata(conn, MENU_SNAPSHOT_VERSION_KEY, version)
+}
+
+pub fn get_menu_sync_version(conn: &Connection) -> Result<Option<String>, SyncStatusError> {
+    let version = conn
+        .query_row("SELECT value FROM app_metadata WHERE key = ?1", [MENU_SNAPSHOT_VERSION_KEY], |row| row.get(0))
+        .optional()?;
+    Ok(version)
 }
 
 fn set_metadata(conn: &Connection, key: &str, value: &str) -> Result<(), SyncStatusError> {
@@ -125,6 +145,19 @@ mod tests {
         let status = get_status(&conn).unwrap();
         assert_eq!(status.online, Some(false));
         assert_eq!(status.last_successful_sync_at, first_success_at);
+    }
+
+    #[test]
+    fn menu_sync_version_is_none_until_the_first_menu_sync_and_persists_after() {
+        let conn = test_conn();
+        assert_eq!(get_menu_sync_version(&conn).unwrap(), None);
+
+        record_menu_sync_version(&conn, "2026-01-01T00:00:00.000Z").unwrap();
+        assert_eq!(get_menu_sync_version(&conn).unwrap(), Some("2026-01-01T00:00:00.000Z".to_string()));
+
+        // A later sync overwrites it, same upsert convention as the other metadata keys.
+        record_menu_sync_version(&conn, "2026-01-02T00:00:00.000Z").unwrap();
+        assert_eq!(get_menu_sync_version(&conn).unwrap(), Some("2026-01-02T00:00:00.000Z".to_string()));
     }
 
     #[test]

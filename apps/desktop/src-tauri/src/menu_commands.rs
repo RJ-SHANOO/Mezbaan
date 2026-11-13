@@ -10,6 +10,7 @@ use crate::manager_pin_offline;
 use crate::menu_cache::{self, MenuCategory, MenuProduct, ModifierGroupWithOptions};
 use crate::secure_store;
 use crate::snapshot_sync;
+use crate::sync_status;
 use tauri::State;
 
 #[tauri::command]
@@ -26,8 +27,22 @@ pub fn sync_menu(db_state: State<DbState>, api_base_url: String, public_key_pem:
 
     manager_pin_offline::ingest_snapshot(conn, &snapshot.version, &snapshot.content_json).map_err(|e| e.to_string())?;
     menu_cache::ingest_snapshot(conn, &snapshot.content_json).map_err(|e| e.to_string())?;
+    // P2-17: persisted so get_menu_sync_version reflects it immediately on every
+    // later read, including after this terminal restarts.
+    sync_status::record_menu_sync_version(conn, &snapshot.version).map_err(|e| e.to_string())?;
 
     Ok(snapshot.version)
+}
+
+/// P2-17: the "prices as of" timestamp from the last successfully ingested
+/// snapshot, read straight from local storage — unlike sync_menu, this makes no
+/// network call, so the POS screen can show it immediately on mount, before (or
+/// even if) this session's own sync_menu call ever resolves.
+#[tauri::command]
+pub fn get_menu_sync_version(db_state: State<DbState>) -> Result<Option<String>, String> {
+    let guard = db_state.0.lock().map_err(|e| e.to_string())?;
+    let conn = guard.as_ref().ok_or_else(|| "local database unavailable".to_string())?;
+    sync_status::get_menu_sync_version(conn).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

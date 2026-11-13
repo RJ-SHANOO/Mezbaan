@@ -1,6 +1,16 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
-import { findMenuProductByBarcode, getMenuCategories, getMenuProducts, getModifierGroupsForProduct, syncMenu, type MenuProduct, type ModifierGroup, type ModifierOption } from "../shared/menu-client.js";
+import {
+  findMenuProductByBarcode,
+  getMenuCategories,
+  getMenuProducts,
+  getMenuSyncVersion,
+  getModifierGroupsForProduct,
+  syncMenu,
+  type MenuProduct,
+  type ModifierGroup,
+  type ModifierOption,
+} from "../shared/menu-client.js";
 import { addLine, modifierToCartLineModifier, removeLine, type CartLine } from "./cart.js";
 import { CartPanel } from "./CartPanel.js";
 import { CategoryGrid } from "./CategoryGrid.js";
@@ -16,6 +26,12 @@ import { useKeyboardShortcuts } from "./useKeyboardShortcuts.js";
  * Fires a background sync on mount to refresh that cache; a failed sync
  * (e.g. offline) is swallowed and surfaced as a small inline note — it
  * never blocks rendering whatever's already cached locally.
+ *
+ * P2-17: alongside that error note, a persistent status line shows whether a
+ * sync is in progress and, once known, the "prices as of" version from the
+ * last one that succeeded — read from local storage via getMenuSyncVersion
+ * so it's there immediately on mount, not just after this mount's own
+ * syncMenu call resolves (e.g. right after an error-boundary reset).
  */
 export function PosScreen(): ReactElement {
   const queryClient = useQueryClient();
@@ -26,22 +42,38 @@ export function PosScreen(): ReactElement {
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [scanNotice, setScanNotice] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [menuVersion, setMenuVersion] = useState<string | null>(null);
+  const [isSyncingMenu, setIsSyncingMenu] = useState(true);
   const [cartLines, setCartLines] = useState<CartLine[]>([]);
   const [modifierPicker, setModifierPicker] = useState<{ product: MenuProduct; groups: ModifierGroup[] } | null>(null);
   const [cartError, setCartError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
+
+    getMenuSyncVersion()
+      .then((version) => {
+        if (!cancelled) setMenuVersion(version);
+      })
+      .catch(() => {
+        // Best-effort seed only — the syncMenu() result below is authoritative.
+      });
+
     syncMenu()
-      .then(() => {
+      .then((version) => {
         if (!cancelled) {
           setSyncError(null);
+          setMenuVersion(version);
           void queryClient.invalidateQueries({ queryKey: ["menu"] });
         }
       })
       .catch((error: unknown) => {
         if (!cancelled) setSyncError(error instanceof Error ? error.message : "Couldn't refresh the menu.");
+      })
+      .finally(() => {
+        if (!cancelled) setIsSyncingMenu(false);
       });
+
     return () => {
       cancelled = true;
     };
@@ -139,6 +171,13 @@ export function PosScreen(): ReactElement {
           {scanNotice}
         </p>
       )}
+      <p className="text-xs text-slate-400" role="status">
+        {isSyncingMenu
+          ? "Syncing prices…"
+          : menuVersion
+            ? `Prices as of ${new Date(menuVersion).toLocaleTimeString()}`
+            : "Prices not yet synced"}
+      </p>
       {syncError && (
         <p className="text-xs text-amber-600" role="status">
           Menu may be out of date: {syncError}
