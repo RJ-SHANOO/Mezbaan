@@ -51,6 +51,7 @@ export class PriceListsController {
       orderType: request.orderType,
       productId: request.productId,
       variantId: request.variantId,
+      modifierOptionId: request.modifierOptionId,
       at: request.at ? new Date(request.at) : undefined,
     });
     if (!resolved) return null;

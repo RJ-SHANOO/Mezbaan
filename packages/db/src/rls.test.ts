@@ -27,6 +27,8 @@ import {
   deliveryRiders,
   diningTables,
   floors,
+  orderItemModifiers,
+  orderItems,
   orders,
   productStockStatus,
   restaurants,
@@ -1051,6 +1053,129 @@ describe("delivery_riders/delivery_details — tenant isolation (P2-10)", () => 
     await expect(
       withTenant(db, { restaurantId }, (tx) =>
         tx.insert(deliveryDetails).values({ restaurantId, orderId, customerName: "Ali 2", customerPhone: "0301", addressLine1: "456 Side St" }),
+      ),
+    ).rejects.toThrow();
+  });
+});
+
+describe("order_items/order_item_modifiers — tenant isolation (P2-12)", () => {
+  async function createOpenOrderWithPricedProduct(restaurantId: string, label: string): Promise<{ orderId: string; productId: string; priceListId: string }> {
+    const userId = await createUser(restaurantId, label);
+    return withTenant(db, { restaurantId }, async (tx) => {
+      const branchRows = await tx.insert(branches).values({ restaurantId, name: "Main", timezone: "Asia/Karachi" }).returning({ id: branches.id });
+      const branchId = branchRows[0]?.id;
+      if (!branchId) throw new Error("fixture: branch insert returned no row");
+
+      const categoryRows = await tx.insert(categories).values({ restaurantId, name: "Burgers" }).returning({ id: categories.id });
+      const categoryId = categoryRows[0]?.id;
+      if (!categoryId) throw new Error("fixture: category insert returned no row");
+
+      const productRows = await tx.insert(products).values({ restaurantId, categoryId, name: "Cheeseburger" }).returning({ id: products.id });
+      const productId = productRows[0]?.id;
+      if (!productId) throw new Error("fixture: product insert returned no row");
+
+      const priceListRows = await tx
+        .insert(priceLists)
+        .values({ restaurantId, name: `List-${randomUUID()}`, currency: "PKR", status: "published" })
+        .returning({ id: priceLists.id });
+      const priceListId = priceListRows[0]?.id;
+      if (!priceListId) throw new Error("fixture: price list insert returned no row");
+      await tx.insert(priceListItems).values({ restaurantId, priceListId, productId, unitPriceMinor: 1500n });
+
+      const orderRows = await tx
+        .insert(orders)
+        .values({ restaurantId, branchId, orderType: "takeaway", currency: "PKR", openedByUserId: userId })
+        .returning({ id: orders.id });
+      const orderId = orderRows[0]?.id;
+      if (!orderId) throw new Error("fixture: order insert returned no row");
+
+      return { orderId, productId, priceListId };
+    });
+  }
+
+  it("an order item created under one tenant is never visible to another tenant's session", async () => {
+    const restaurantAId = await createRestaurant("Tenant TTT3");
+    const restaurantBId = await createRestaurant("Tenant UUU3");
+    const { orderId, productId, priceListId } = await createOpenOrderWithPricedProduct(restaurantAId, "item-tenant-a");
+
+    await withTenant(db, { restaurantId: restaurantAId }, (tx) =>
+      tx.insert(orderItems).values({ restaurantId: restaurantAId, orderId, productId, unitPriceMinor: 1500n, currency: "PKR", priceListId, priceListVersion: 1 }),
+    );
+
+    const seenByB = await withTenant(db, { restaurantId: restaurantBId }, (tx) => tx.select().from(orderItems));
+    expect(seenByB).toEqual([]);
+  });
+
+  it("an order item modifier created under one tenant is never visible to another tenant's session", async () => {
+    const restaurantAId = await createRestaurant("Tenant VVV3");
+    const restaurantBId = await createRestaurant("Tenant WWW3");
+    const { orderId, productId, priceListId } = await createOpenOrderWithPricedProduct(restaurantAId, "modifier-tenant-a");
+
+    const { itemId, optionId } = await withTenant(db, { restaurantId: restaurantAId }, async (tx) => {
+      const itemRows = await tx
+        .insert(orderItems)
+        .values({ restaurantId: restaurantAId, orderId, productId, unitPriceMinor: 1500n, currency: "PKR", priceListId, priceListVersion: 1 })
+        .returning({ id: orderItems.id });
+      const itemId = itemRows[0]?.id;
+      if (!itemId) throw new Error("fixture: order item insert returned no row");
+
+      const groupRows = await tx.insert(modifierGroups).values({ restaurantId: restaurantAId, name: "Toppings" }).returning({ id: modifierGroups.id });
+      const modifierGroupId = groupRows[0]?.id;
+      if (!modifierGroupId) throw new Error("fixture: modifier group insert returned no row");
+
+      const optionRows = await tx.insert(modifierOptions).values({ restaurantId: restaurantAId, modifierGroupId, name: "Extra Cheese" }).returning({ id: modifierOptions.id });
+      const optionId = optionRows[0]?.id;
+      if (!optionId) throw new Error("fixture: modifier option insert returned no row");
+
+      return { itemId, optionId };
+    });
+
+    await withTenant(db, { restaurantId: restaurantAId }, (tx) =>
+      tx.insert(orderItemModifiers).values({ restaurantId: restaurantAId, orderItemId: itemId, modifierOptionId: optionId, unitPriceMinor: 0n, currency: "PKR" }),
+    );
+
+    const seenByB = await withTenant(db, { restaurantId: restaurantBId }, (tx) => tx.select().from(orderItemModifiers));
+    expect(seenByB).toEqual([]);
+  });
+
+  it("the CHECK constraint rejects an order item with both productId and variantId, or neither", async () => {
+    const restaurantId = await createRestaurant("Tenant XXX3");
+    const { orderId, productId, priceListId } = await createOpenOrderWithPricedProduct(restaurantId, "item-check");
+
+    await expect(
+      withTenant(db, { restaurantId }, (tx) =>
+        tx.insert(orderItems).values({
+          restaurantId,
+          orderId,
+          productId: null,
+          variantId: null,
+          unitPriceMinor: 1500n,
+          currency: "PKR",
+          priceListId,
+          priceListVersion: 1,
+        }),
+      ),
+    ).rejects.toThrow();
+
+    const variantId = await withTenant(db, { restaurantId }, async (tx) => {
+      const rows = await tx.insert(productVariants).values({ restaurantId, productId, name: "Large" }).returning({ id: productVariants.id });
+      const id = rows[0]?.id;
+      if (!id) throw new Error("fixture: variant insert returned no row");
+      return id;
+    });
+
+    await expect(
+      withTenant(db, { restaurantId }, (tx) =>
+        tx.insert(orderItems).values({
+          restaurantId,
+          orderId,
+          productId,
+          variantId,
+          unitPriceMinor: 1500n,
+          currency: "PKR",
+          priceListId,
+          priceListVersion: 1,
+        }),
       ),
     ).rejects.toThrow();
   });

@@ -5,6 +5,8 @@ import { createDb, createPool, schema, withTenant, type Database } from "@mezbaa
 import type { Pool } from "pg";
 import { AuditLogService } from "./audit-log.service.js";
 import { CategoriesService } from "./categories.service.js";
+import { ModifierGroupsService } from "./modifier-groups.service.js";
+import { ModifierOptionsService } from "./modifier-options.service.js";
 import { PriceListItemsService } from "./price-list-items.service.js";
 import { PriceListsService, type CreatePriceListParams } from "./price-lists.service.js";
 import { PriceResolutionService } from "./price-resolution.service.js";
@@ -20,6 +22,8 @@ let priceListsService: PriceListsService;
 let itemsService: PriceListItemsService;
 let productsService: ProductsService;
 let categoriesService: CategoriesService;
+let modifierGroupsService: ModifierGroupsService;
+let modifierOptionsService: ModifierOptionsService;
 
 beforeAll(() => {
   pool = createPool(APP_DATABASE_URL);
@@ -30,6 +34,8 @@ beforeAll(() => {
   itemsService = new PriceListItemsService(db, auditLogService);
   productsService = new ProductsService(db, auditLogService);
   categoriesService = new CategoriesService(db, auditLogService);
+  modifierGroupsService = new ModifierGroupsService(db, auditLogService);
+  modifierOptionsService = new ModifierOptionsService(db, auditLogService);
 });
 
 afterAll(async () => {
@@ -199,5 +205,28 @@ describe("PriceResolutionService", () => {
       service.resolvePrice({ restaurantId: tenant.restaurantId, branchId, orderType: "dine_in", productId: randomUUID(), variantId: randomUUID() }),
     ).rejects.toBeInstanceOf(BadRequestException);
     await expect(service.resolvePrice({ restaurantId: tenant.restaurantId, branchId, orderType: "dine_in" })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("resolves a modifier option's price independently of any product (P2-12)", async () => {
+    const tenant = await createRestaurant("resolve-modifier-option");
+    const branchId = await createBranch(tenant.restaurantId);
+    const group = await modifierGroupsService.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, name: "Toppings" });
+    const option = await modifierOptionsService.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, modifierGroupId: group.id, name: "Extra Cheese" });
+
+    const priceList = await priceListsService.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, name: `List-${randomUUID()}`, currency: "PKR" });
+    await itemsService.setPrice({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, priceListId: priceList.id, modifierOptionId: option.id, unitPriceMinor: 150n });
+    await priceListsService.publish({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, priceListId: priceList.id });
+
+    const resolved = await service.resolvePrice({ restaurantId: tenant.restaurantId, branchId, orderType: "dine_in", modifierOptionId: option.id });
+    expect(resolved?.unitPriceMinor).toBe(150n);
+  });
+
+  it("returns null for a modifier option with no price configured, rather than an error", async () => {
+    const tenant = await createRestaurant("resolve-modifier-unpriced");
+    const branchId = await createBranch(tenant.restaurantId);
+    const group = await modifierGroupsService.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, name: "Preferences" });
+    const option = await modifierOptionsService.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, modifierGroupId: group.id, name: "No Onions" });
+
+    expect(await service.resolvePrice({ restaurantId: tenant.restaurantId, branchId, orderType: "dine_in", modifierOptionId: option.id })).toBeNull();
   });
 });

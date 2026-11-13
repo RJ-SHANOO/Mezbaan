@@ -50,14 +50,23 @@ export const PriceListSchema = z.object({
 });
 export type PriceList = z.infer<typeof PriceListSchema>;
 
+/** True when exactly one of the three is defined — used wherever a priced
+ * reference (P2-04's price_list_items, and now P2-12's cart) must point at
+ * exactly one of a product, a variant, or (since P2-12) a modifier option. */
+export function exactlyOneOfThree(a: unknown, b: unknown, c: unknown): boolean {
+  return [a !== undefined, b !== undefined, c !== undefined].filter(Boolean).length === 1;
+}
+const EXACTLY_ONE_PRICED_REFERENCE = "exactly one of productId, variantId or modifierOptionId must be set";
+
 export const SetPriceListItemSchema = z
   .object({
     productId: z.string().uuid().optional(),
     variantId: z.string().uuid().optional(),
+    modifierOptionId: z.string().uuid().optional(),
     unitPriceMinor: UnitPriceMinorSchema,
   })
-  .refine((data) => (data.productId !== undefined) !== (data.variantId !== undefined), {
-    message: "exactly one of productId or variantId must be set",
+  .refine((data) => exactlyOneOfThree(data.productId, data.variantId, data.modifierOptionId), {
+    message: EXACTLY_ONE_PRICED_REFERENCE,
     path: ["productId"],
   });
 export type SetPriceListItem = z.infer<typeof SetPriceListItemSchema>;
@@ -67,6 +76,7 @@ export const PriceListItemSchema = z.object({
   priceListId: z.string().uuid(),
   productId: z.string().uuid().nullable(),
   variantId: z.string().uuid().nullable(),
+  modifierOptionId: z.string().uuid().nullable(),
   unitPriceMinor: UnitPriceMinorSchema,
 });
 export type PriceListItem = z.infer<typeof PriceListItemSchema>;
@@ -77,10 +87,11 @@ export const ResolvePriceQuerySchema = z
     orderType: OrderTypeSchema,
     productId: z.string().uuid().optional(),
     variantId: z.string().uuid().optional(),
+    modifierOptionId: z.string().uuid().optional(),
     at: z.string().datetime().optional(),
   })
-  .refine((data) => (data.productId !== undefined) !== (data.variantId !== undefined), {
-    message: "exactly one of productId or variantId must be set",
+  .refine((data) => exactlyOneOfThree(data.productId, data.variantId, data.modifierOptionId), {
+    message: EXACTLY_ONE_PRICED_REFERENCE,
     path: ["productId"],
   });
 export type ResolvePriceQuery = z.infer<typeof ResolvePriceQuerySchema>;

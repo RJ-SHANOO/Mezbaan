@@ -47,6 +47,7 @@ pub fn run() {
             menu_commands::get_menu_categories,
             menu_commands::get_menu_products,
             menu_commands::find_menu_product_by_barcode,
+            menu_commands::get_modifier_groups_for_product,
             mark_clean_shutdown,
         ])
         .setup(|app| {

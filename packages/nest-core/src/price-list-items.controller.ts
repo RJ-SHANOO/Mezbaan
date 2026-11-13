@@ -10,7 +10,14 @@ const PriceListIdParamSchema = z.object({ priceListId: z.string().uuid() });
 const ItemIdParamSchema = z.object({ priceListId: z.string().uuid(), itemId: z.string().uuid() });
 
 function toItemResponse(item: PriceListItemRecord): PriceListItem {
-  return { id: item.id, priceListId: item.priceListId, productId: item.productId, variantId: item.variantId, unitPriceMinor: item.unitPriceMinor.toString() };
+  return {
+    id: item.id,
+    priceListId: item.priceListId,
+    productId: item.productId,
+    variantId: item.variantId,
+    modifierOptionId: item.modifierOptionId,
+    unitPriceMinor: item.unitPriceMinor.toString(),
+  };
 }
 
 @Controller("price-lists/:priceListId/items")
@@ -38,6 +45,7 @@ export class PriceListItemsController {
       priceListId,
       productId: request.productId,
       variantId: request.variantId,
+      modifierOptionId: request.modifierOptionId,
       unitPriceMinor: BigInt(request.unitPriceMinor),
     });
     return toItemResponse(item);

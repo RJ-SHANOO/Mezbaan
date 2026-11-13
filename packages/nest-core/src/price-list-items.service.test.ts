@@ -5,6 +5,8 @@ import { createDb, createPool, schema, withTenant, type Database } from "@mezbaa
 import type { Pool } from "pg";
 import { AuditLogService } from "./audit-log.service.js";
 import { CategoriesService } from "./categories.service.js";
+import { ModifierGroupsService } from "./modifier-groups.service.js";
+import { ModifierOptionsService } from "./modifier-options.service.js";
 import { PriceListItemsService } from "./price-list-items.service.js";
 import { PriceListsService } from "./price-lists.service.js";
 import { ProductVariantsService } from "./product-variants.service.js";
@@ -20,6 +22,8 @@ let priceListsService: PriceListsService;
 let productsService: ProductsService;
 let variantsService: ProductVariantsService;
 let categoriesService: CategoriesService;
+let modifierGroupsService: ModifierGroupsService;
+let modifierOptionsService: ModifierOptionsService;
 
 beforeAll(() => {
   pool = createPool(APP_DATABASE_URL);
@@ -30,6 +34,8 @@ beforeAll(() => {
   productsService = new ProductsService(db, auditLogService);
   variantsService = new ProductVariantsService(db, auditLogService);
   categoriesService = new CategoriesService(db, auditLogService);
+  modifierGroupsService = new ModifierGroupsService(db, auditLogService);
+  modifierOptionsService = new ModifierOptionsService(db, auditLogService);
 });
 
 afterAll(async () => {
@@ -132,6 +138,41 @@ describe("PriceListItemsService", () => {
     await expect(
       service.setPrice({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, priceListId, unitPriceMinor: 100n }),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("sets a modifier option's price independently of its product's price (P2-12)", async () => {
+    const tenant = await createRestaurant("item-set-modifier-option");
+    const priceListId = await createDraftPriceList(tenant.restaurantId, tenant.ownerUserId);
+    const productId = await createProduct(tenant.restaurantId, tenant.ownerUserId);
+    const group = await modifierGroupsService.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, name: "Toppings" });
+    const option = await modifierOptionsService.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, modifierGroupId: group.id, name: "Extra Cheese" });
+
+    await service.setPrice({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, priceListId, productId, unitPriceMinor: 1500n });
+    const modifierItem = await service.setPrice({
+      restaurantId: tenant.restaurantId,
+      actorUserId: tenant.ownerUserId,
+      priceListId,
+      modifierOptionId: option.id,
+      unitPriceMinor: 150n,
+    });
+    expect(modifierItem.modifierOptionId).toBe(option.id);
+    expect(modifierItem.productId).toBeNull();
+
+    const listed = await service.list(tenant.restaurantId, priceListId);
+    expect(listed.find((i) => i.modifierOptionId === option.id)?.unitPriceMinor).toBe(150n);
+    expect(listed.find((i) => i.productId === productId)?.unitPriceMinor).toBe(1500n);
+  });
+
+  it("rejects setting a price for a modifier option from another tenant", async () => {
+    const tenantA = await createRestaurant("item-cross-modifier-a");
+    const tenantB = await createRestaurant("item-cross-modifier-b");
+    const priceListIdA = await createDraftPriceList(tenantA.restaurantId, tenantA.ownerUserId);
+    const groupB = await modifierGroupsService.create({ restaurantId: tenantB.restaurantId, actorUserId: tenantB.ownerUserId, name: "Toppings" });
+    const optionB = await modifierOptionsService.create({ restaurantId: tenantB.restaurantId, actorUserId: tenantB.ownerUserId, modifierGroupId: groupB.id, name: "Extra Cheese" });
+
+    await expect(
+      service.setPrice({ restaurantId: tenantA.restaurantId, actorUserId: tenantA.ownerUserId, priceListId: priceListIdA, modifierOptionId: optionB.id, unitPriceMinor: 100n }),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it("rejects setting a price for a product that belongs to a different tenant", async () => {

@@ -76,6 +76,8 @@ struct SnapshotMenuPrice {
     product_id: Option<String>,
     #[serde(rename = "variantId")]
     variant_id: Option<String>,
+    #[serde(rename = "modifierOptionId", default)]
+    modifier_option_id: Option<String>,
     #[serde(rename = "orderType")]
     order_type: String,
     #[serde(rename = "unitPriceMinor")]
@@ -87,12 +89,53 @@ struct SnapshotMenuPrice {
     price_list_version: i64,
 }
 
+/// P2-12: a reusable choice group (e.g. "Toppings") — restaurant-wide, not
+/// tied to one product; `SnapshotProductModifierGroup` is what actually
+/// attaches one to a product.
+#[derive(Deserialize)]
+struct SnapshotModifierGroup {
+    id: String,
+    name: String,
+    #[serde(rename = "minSelections")]
+    min_selections: i64,
+    #[serde(rename = "maxSelections")]
+    max_selections: Option<i64>,
+    #[serde(rename = "sortOrder")]
+    sort_order: i64,
+}
+
+#[derive(Deserialize)]
+struct SnapshotModifierOption {
+    id: String,
+    #[serde(rename = "modifierGroupId")]
+    modifier_group_id: String,
+    name: String,
+    #[serde(rename = "sortOrder")]
+    sort_order: i64,
+}
+
+#[derive(Deserialize)]
+struct SnapshotProductModifierGroup {
+    #[serde(rename = "productId")]
+    product_id: String,
+    #[serde(rename = "modifierGroupId")]
+    modifier_group_id: String,
+    #[serde(rename = "sortOrder")]
+    sort_order: i64,
+}
+
 #[derive(Deserialize)]
 struct SnapshotMenu {
     categories: Vec<SnapshotMenuCategory>,
     products: Vec<SnapshotMenuProduct>,
     variants: Vec<SnapshotMenuVariant>,
     prices: Vec<SnapshotMenuPrice>,
+    #[serde(rename = "modifierGroups", default)]
+    modifier_groups: Vec<SnapshotModifierGroup>,
+    #[serde(rename = "modifierOptions", default)]
+    modifier_options: Vec<SnapshotModifierOption>,
+    #[serde(rename = "productModifierGroups", default)]
+    product_modifier_groups: Vec<SnapshotProductModifierGroup>,
 }
 
 #[derive(Deserialize)]
@@ -107,6 +150,9 @@ pub fn ingest_snapshot(conn: &mut Connection, content_json: &str) -> Result<usiz
     let menu = content.menu;
 
     let tx = conn.transaction()?;
+    tx.execute("DELETE FROM product_modifier_groups", [])?;
+    tx.execute("DELETE FROM modifier_options", [])?;
+    tx.execute("DELETE FROM modifier_groups", [])?;
     tx.execute("DELETE FROM menu_prices", [])?;
     tx.execute("DELETE FROM menu_variants", [])?;
     tx.execute("DELETE FROM menu_products", [])?;
@@ -132,8 +178,35 @@ pub fn ingest_snapshot(conn: &mut Connection, content_json: &str) -> Result<usiz
     }
     for price in &menu.prices {
         tx.execute(
-            "INSERT INTO menu_prices (product_id, variant_id, order_type, unit_price_minor, currency, price_list_id, price_list_version) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            (&price.product_id, &price.variant_id, &price.order_type, &price.unit_price_minor, &price.currency, &price.price_list_id, price.price_list_version),
+            "INSERT INTO menu_prices (product_id, variant_id, modifier_option_id, order_type, unit_price_minor, currency, price_list_id, price_list_version) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            (
+                &price.product_id,
+                &price.variant_id,
+                &price.modifier_option_id,
+                &price.order_type,
+                &price.unit_price_minor,
+                &price.currency,
+                &price.price_list_id,
+                price.price_list_version,
+            ),
+        )?;
+    }
+    for group in &menu.modifier_groups {
+        tx.execute(
+            "INSERT INTO modifier_groups (id, name, min_selections, max_selections, sort_order) VALUES (?1, ?2, ?3, ?4, ?5)",
+            (&group.id, &group.name, group.min_selections, group.max_selections, group.sort_order),
+        )?;
+    }
+    for option in &menu.modifier_options {
+        tx.execute(
+            "INSERT INTO modifier_options (id, modifier_group_id, name, sort_order) VALUES (?1, ?2, ?3, ?4)",
+            (&option.id, &option.modifier_group_id, &option.name, option.sort_order),
+        )?;
+    }
+    for link in &menu.product_modifier_groups {
+        tx.execute(
+            "INSERT INTO product_modifier_groups (product_id, modifier_group_id, sort_order) VALUES (?1, ?2, ?3)",
+            (&link.product_id, &link.modifier_group_id, link.sort_order),
         )?;
     }
 
@@ -204,6 +277,67 @@ pub fn find_by_barcode(conn: &Connection, barcode: &str) -> rusqlite::Result<Opt
     stmt.query_row((DEFAULT_ORDER_TYPE, barcode), map_product_row).optional()
 }
 
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ModifierOption {
+    pub id: String,
+    pub name: String,
+    pub sort_order: i64,
+    /// The default order type's resolved price, if one has been synced — see
+    /// DEFAULT_ORDER_TYPE. `None` means this option is free (no price list
+    /// entry), not an error.
+    pub unit_price_minor: Option<String>,
+    pub currency: Option<String>,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ModifierGroupWithOptions {
+    pub id: String,
+    pub name: String,
+    pub min_selections: i64,
+    pub max_selections: Option<i64>,
+    pub sort_order: i64,
+    pub options: Vec<ModifierOption>,
+}
+
+/// Every modifier group attached to this product, each with its own options
+/// — what the cart's modifier-selection step needs to render and validate
+/// against (min/max), with no network call.
+pub fn list_modifier_groups_for_product(conn: &Connection, product_id: &str) -> rusqlite::Result<Vec<ModifierGroupWithOptions>> {
+    let mut group_stmt = conn.prepare(
+        "SELECT g.id, g.name, g.min_selections, g.max_selections, g.sort_order
+         FROM modifier_groups g
+         JOIN product_modifier_groups pmg ON pmg.modifier_group_id = g.id
+         WHERE pmg.product_id = ?1
+         ORDER BY pmg.sort_order, g.name",
+    )?;
+    let groups = group_stmt
+        .query_map([product_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?, row.get::<_, Option<i64>>(3)?, row.get::<_, i64>(4)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    let mut option_stmt = conn.prepare(
+        "SELECT o.id, o.name, o.sort_order, pr.unit_price_minor, pr.currency
+         FROM modifier_options o
+         LEFT JOIN menu_prices pr ON pr.modifier_option_id = o.id AND pr.order_type = ?2
+         WHERE o.modifier_group_id = ?1
+         ORDER BY o.sort_order, o.name",
+    )?;
+
+    let mut result = Vec::with_capacity(groups.len());
+    for (id, name, min_selections, max_selections, sort_order) in groups {
+        let options = option_stmt
+            .query_map((&id, DEFAULT_ORDER_TYPE), |row| {
+                Ok(ModifierOption { id: row.get(0)?, name: row.get(1)?, sort_order: row.get(2)?, unit_price_minor: row.get(3)?, currency: row.get(4)? })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        result.push(ModifierGroupWithOptions { id, name, min_selections, max_selections, sort_order, options });
+    }
+    Ok(result)
+}
+
 fn map_product_row(row: &rusqlite::Row) -> rusqlite::Result<MenuProduct> {
     Ok(MenuProduct {
         id: row.get(0)?,
@@ -226,6 +360,7 @@ mod tests {
     fn test_conn() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(include_str!("../migrations/0005_menu_cache.sql")).unwrap();
+        conn.execute_batch(include_str!("../migrations/0006_modifier_cache.sql")).unwrap();
         conn
     }
 
@@ -320,5 +455,71 @@ mod tests {
 
         let products = list_products(&conn, None, None).unwrap();
         assert_eq!(products[0].unit_price_minor, None);
+    }
+
+    fn content_with_modifiers() -> String {
+        r#"{
+            "menu": {
+                "categories": [{"id": "cat-1", "name": "Burgers", "sortOrder": 0}],
+                "products": [{"id": "prod-1", "categoryId": "cat-1", "name": "Cheeseburger", "sku": null, "barcode": null, "imageUrl": null, "sortOrder": 0}],
+                "variants": [],
+                "prices": [
+                    {"modifierOptionId": "opt-1", "orderType": "dine_in", "unitPriceMinor": "150", "currency": "PKR", "priceListId": "pl-1", "priceListVersion": 1}
+                ],
+                "modifierGroups": [{"id": "grp-1", "name": "Toppings", "minSelections": 0, "maxSelections": null, "sortOrder": 0}],
+                "modifierOptions": [
+                    {"id": "opt-1", "modifierGroupId": "grp-1", "name": "Extra Cheese", "sortOrder": 0},
+                    {"id": "opt-2", "modifierGroupId": "grp-1", "name": "Bacon", "sortOrder": 1}
+                ],
+                "productModifierGroups": [{"productId": "prod-1", "modifierGroupId": "grp-1", "sortOrder": 0}]
+            }
+        }"#
+        .to_string()
+    }
+
+    #[test]
+    fn ingests_modifier_groups_and_options_with_a_resolved_price_for_one_option() {
+        let mut conn = test_conn();
+        ingest_snapshot(&mut conn, &content_with_modifiers()).unwrap();
+
+        let groups = list_modifier_groups_for_product(&conn, "prod-1").unwrap();
+        assert_eq!(groups.len(), 1);
+        let group = &groups[0];
+        assert_eq!(group.id, "grp-1");
+        assert_eq!(group.options.len(), 2);
+        let cheese = group.options.iter().find(|o| o.id == "opt-1").unwrap();
+        assert_eq!(cheese.unit_price_minor, Some("150".to_string()));
+        let bacon = group.options.iter().find(|o| o.id == "opt-2").unwrap();
+        assert_eq!(bacon.unit_price_minor, None); // no price list entry — free, not an error
+    }
+
+    #[test]
+    fn a_product_with_no_attached_modifier_groups_gets_an_empty_list() {
+        let mut conn = test_conn();
+        ingest_snapshot(&mut conn, &content_with_modifiers()).unwrap();
+
+        let groups = list_modifier_groups_for_product(&conn, "prod-nonexistent").unwrap();
+        assert_eq!(groups, vec![]);
+    }
+
+    #[test]
+    fn a_second_ingest_wholesale_replaces_modifier_data_too() {
+        let mut conn = test_conn();
+        ingest_snapshot(&mut conn, &content_with_modifiers()).unwrap();
+
+        let empty = r#"{"menu": {"categories": [], "products": [], "variants": [], "prices": [], "modifierGroups": [], "modifierOptions": [], "productModifierGroups": []}}"#;
+        ingest_snapshot(&mut conn, empty).unwrap();
+
+        assert_eq!(list_modifier_groups_for_product(&conn, "prod-1").unwrap(), vec![]);
+    }
+
+    #[test]
+    fn deserializes_a_snapshot_with_no_modifier_sections_at_all_as_empty() {
+        // Backward compatibility: a P2-11-shaped snapshot (before P2-12 added
+        // modifier sections) must still parse, defaulting to empty lists.
+        let mut conn = test_conn();
+        ingest_snapshot(&mut conn, &sample_content()).unwrap();
+
+        assert_eq!(list_modifier_groups_for_product(&conn, "prod-1").unwrap(), vec![]);
     }
 }

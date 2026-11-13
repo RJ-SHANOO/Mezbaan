@@ -1,0 +1,5 @@
+DROP INDEX "price_list_items_list_product_idx";--> statement-breakpoint
+ALTER TABLE "price_list_items" ADD COLUMN "modifier_option_id" uuid;--> statement-breakpoint
+ALTER TABLE "price_list_items" ADD CONSTRAINT "price_list_items_modifier_option_id_modifier_options_id_fk" FOREIGN KEY ("modifier_option_id") REFERENCES "public"."modifier_options"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "price_list_items_list_modifier_option_idx" ON "price_list_items" USING btree ("price_list_id","modifier_option_id") WHERE "price_list_items"."modifier_option_id" IS NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "price_list_items_list_product_idx" ON "price_list_items" USING btree ("price_list_id","product_id") WHERE "price_list_items"."variant_id" IS NULL AND "price_list_items"."modifier_option_id" IS NULL;

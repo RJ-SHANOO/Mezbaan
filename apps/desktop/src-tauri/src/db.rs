@@ -68,6 +68,7 @@ const MIGRATIONS: &[Migration] = &[
     Migration { version: 3, name: "manager_pin_offline", sql: include_str!("../migrations/0003_manager_pin_offline.sql") },
     Migration { version: 4, name: "document_number_sequence", sql: include_str!("../migrations/0004_document_number_sequence.sql") },
     Migration { version: 5, name: "menu_cache", sql: include_str!("../migrations/0005_menu_cache.sql") },
+    Migration { version: 6, name: "modifier_cache", sql: include_str!("../migrations/0006_modifier_cache.sql") },
 ];
 
 fn db_path(app_data_dir: &Path) -> PathBuf {

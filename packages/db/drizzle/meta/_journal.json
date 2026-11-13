@@ -148,6 +148,20 @@
       "when": 1794427468825,
       "tag": "0020_handy_wallow",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1794547942470,
+      "tag": "0021_opposite_morbius",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1794548040212,
+      "tag": "0022_tranquil_imperial_guard",
+      "breakpoints": true
     }
   ]
 }

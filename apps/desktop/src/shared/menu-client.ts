@@ -22,6 +22,25 @@ export interface MenuProduct {
   currency: string | null;
 }
 
+export interface ModifierOption {
+  id: string;
+  name: string;
+  sortOrder: number;
+  /** Null when this option has no price list entry — a free customization,
+   * not an error. */
+  unitPriceMinor: string | null;
+  currency: string | null;
+}
+
+export interface ModifierGroup {
+  id: string;
+  name: string;
+  minSelections: number;
+  maxSelections: number | null;
+  sortOrder: number;
+  options: ModifierOption[];
+}
+
 /** P2-11: thin wrappers over the menu_cache Tauri commands — every call here
  * reads from the terminal's own local SQLite cache, with no network call in
  * the sale path (rule: "no network call in the sale path"). */
@@ -35,6 +54,12 @@ export function getMenuProducts(categoryId: string | null, search: string | null
 
 export function findMenuProductByBarcode(barcode: string): Promise<MenuProduct | null> {
   return invoke<MenuProduct | null>("find_menu_product_by_barcode", { barcode });
+}
+
+/** P2-12: the modifier groups/options attached to one product — what the
+ * cart's modifier-selection step needs before an item can be added. */
+export function getModifierGroupsForProduct(productId: string): Promise<ModifierGroup[]> {
+  return invoke<ModifierGroup[]>("get_modifier_groups_for_product", { productId });
 }
 
 /** The one command here that *does* call the network — pulls a fresh signed

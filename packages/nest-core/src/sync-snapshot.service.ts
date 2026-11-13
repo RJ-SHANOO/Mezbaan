@@ -64,7 +64,7 @@ export class SyncSnapshotService {
   }
 
   private async loadMenu(restaurantId: string, branchId: string): Promise<SnapshotMenu> {
-    const { categories, products, variants } = await withTenant(this.db, { restaurantId }, async (tx) => {
+    const { categories, products, variants, modifierGroups, modifierOptions, productModifierGroups } = await withTenant(this.db, { restaurantId }, async (tx) => {
       const categories = await tx
         .select({ id: schema.categories.id, name: schema.categories.name, sortOrder: schema.categories.sortOrder })
         .from(schema.categories)
@@ -106,7 +106,62 @@ export class SyncSnapshotService {
               sortOrder: schema.productVariants.sortOrder,
             }).from(schema.productVariants).where(eq(schema.productVariants.status, "active"));
 
-      return { categories, products, variants: variants.filter((variant) => products.some((product) => product.id === variant.productId)) };
+      const filteredVariants = variants.filter((variant) => products.some((product) => product.id === variant.productId));
+
+      const productModifierGroups =
+        products.length === 0
+          ? []
+          : await tx
+              .select({
+                productId: schema.productModifierGroups.productId,
+                modifierGroupId: schema.productModifierGroups.modifierGroupId,
+                sortOrder: schema.productModifierGroups.sortOrder,
+              })
+              .from(schema.productModifierGroups);
+      const attachedModifierGroupIds = new Set(
+        productModifierGroups.filter((row) => products.some((product) => product.id === row.productId)).map((row) => row.modifierGroupId),
+      );
+      const filteredProductModifierGroups = productModifierGroups.filter((row) => attachedModifierGroupIds.has(row.modifierGroupId));
+
+      const modifierGroups =
+        attachedModifierGroupIds.size === 0
+          ? []
+          : (
+              await tx
+                .select({
+                  id: schema.modifierGroups.id,
+                  name: schema.modifierGroups.name,
+                  minSelections: schema.modifierGroups.minSelections,
+                  maxSelections: schema.modifierGroups.maxSelections,
+                  sortOrder: schema.modifierGroups.sortOrder,
+                })
+                .from(schema.modifierGroups)
+                .where(eq(schema.modifierGroups.status, "active"))
+            ).filter((group) => attachedModifierGroupIds.has(group.id));
+
+      const modifierOptions =
+        modifierGroups.length === 0
+          ? []
+          : (
+              await tx
+                .select({
+                  id: schema.modifierOptions.id,
+                  modifierGroupId: schema.modifierOptions.modifierGroupId,
+                  name: schema.modifierOptions.name,
+                  sortOrder: schema.modifierOptions.sortOrder,
+                })
+                .from(schema.modifierOptions)
+                .where(eq(schema.modifierOptions.status, "active"))
+            ).filter((option) => modifierGroups.some((group) => group.id === option.modifierGroupId));
+
+      return {
+        categories,
+        products,
+        variants: filteredVariants,
+        modifierGroups,
+        modifierOptions,
+        productModifierGroups: filteredProductModifierGroups,
+      };
     });
 
     const prices: SnapshotMenu["prices"] = [];
@@ -137,8 +192,21 @@ export class SyncSnapshotService {
           });
         }
       }
+      for (const option of modifierOptions) {
+        const resolved = await this.priceResolutionService.resolvePrice({ restaurantId, branchId, orderType, modifierOptionId: option.id });
+        if (resolved) {
+          prices.push({
+            modifierOptionId: option.id,
+            orderType,
+            unitPriceMinor: resolved.unitPriceMinor.toString(),
+            currency: resolved.currency,
+            priceListId: resolved.priceListId,
+            priceListVersion: resolved.version,
+          });
+        }
+      }
     }
 
-    return { branchId, categories, products, variants, prices };
+    return { branchId, categories, products, variants, prices, modifierGroups, modifierOptions, productModifierGroups };
   }
 }

@@ -10,11 +10,13 @@ const getMenuCategoriesMock = vi.fn();
 const getMenuProductsMock = vi.fn();
 const findMenuProductByBarcodeMock = vi.fn();
 const syncMenuMock = vi.fn();
+const getModifierGroupsForProductMock = vi.fn();
 vi.mock("../shared/menu-client.js", () => ({
   getMenuCategories: (...args: unknown[]) => getMenuCategoriesMock(...args),
   getMenuProducts: (...args: unknown[]) => getMenuProductsMock(...args),
   findMenuProductByBarcode: (...args: unknown[]) => findMenuProductByBarcodeMock(...args),
   syncMenu: (...args: unknown[]) => syncMenuMock(...args),
+  getModifierGroupsForProduct: (...args: unknown[]) => getModifierGroupsForProductMock(...args),
 }));
 
 const { PosScreen } = await import("./PosScreen.js");
@@ -54,6 +56,7 @@ afterEach(() => {
   getMenuProductsMock.mockReset();
   findMenuProductByBarcodeMock.mockReset();
   syncMenuMock.mockReset();
+  getModifierGroupsForProductMock.mockReset();
 });
 
 describe("PosScreen", () => {
@@ -113,10 +116,11 @@ describe("PosScreen", () => {
     expect(getMenuProductsMock).toHaveBeenCalledWith(null, "burger");
   });
 
-  it("shows a scan notice and selects the product's category when a barcode is found", async () => {
+  it("shows a scan notice, selects the product's category, and adds the scanned item to the cart", async () => {
     getMenuCategoriesMock.mockResolvedValue([{ id: "cat-1", name: "Burgers", sortOrder: 0 }]);
     getMenuProductsMock.mockResolvedValue([]);
     syncMenuMock.mockResolvedValue("v1");
+    getModifierGroupsForProductMock.mockResolvedValue([]);
     findMenuProductByBarcodeMock.mockResolvedValue({
       id: "prod-1",
       categoryId: "cat-1",
@@ -139,9 +143,100 @@ describe("PosScreen", () => {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
       await Promise.resolve();
       await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
     expect(findMenuProductByBarcodeMock).toHaveBeenCalledWith("1111");
     expect(container?.textContent).toContain("Scanned: Cheeseburger");
+    expect(container?.querySelector("[aria-label='Cart']")?.textContent).toContain("Cheeseburger");
+  });
+
+  describe("the cart", () => {
+    const product = { id: "prod-1", categoryId: "cat-1", name: "Cheeseburger", sku: null, barcode: null, imageUrl: null, sortOrder: 0, unitPriceMinor: "1500", currency: "PKR" };
+
+    it("adds a product with no modifier groups straight to the cart on tap", async () => {
+      getMenuCategoriesMock.mockResolvedValue([]);
+      getMenuProductsMock.mockResolvedValue([product]);
+      syncMenuMock.mockResolvedValue("v1");
+      getModifierGroupsForProductMock.mockResolvedValue([]);
+      await renderAndFlush();
+
+      const tile = [...(container?.querySelectorAll("button") ?? [])].find((b) => b.textContent?.includes("Cheeseburger"));
+      await act(async () => {
+        tile?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+        await Promise.resolve();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      const cart = container?.querySelector("[aria-label='Cart']");
+      expect(cart?.textContent).toContain("1× Cheeseburger");
+      expect(cart?.textContent).toContain("PKR 15.00");
+    });
+
+    it("opens the modifier picker for a product with attached groups, and adds the chosen modifier on confirm", async () => {
+      getMenuCategoriesMock.mockResolvedValue([]);
+      getMenuProductsMock.mockResolvedValue([product]);
+      syncMenuMock.mockResolvedValue("v1");
+      getModifierGroupsForProductMock.mockResolvedValue([
+        {
+          id: "grp-1",
+          name: "Toppings",
+          minSelections: 1,
+          maxSelections: 1,
+          sortOrder: 0,
+          options: [{ id: "opt-1", name: "Extra Cheese", sortOrder: 0, unitPriceMinor: "150", currency: "PKR" }],
+        },
+      ]);
+      await renderAndFlush();
+
+      const tile = [...(container?.querySelectorAll("button") ?? [])].find((b) => b.textContent?.includes("Cheeseburger"));
+      await act(async () => {
+        tile?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+        await Promise.resolve();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(container?.querySelector("[role='dialog']")).not.toBeNull();
+      // "Add to cart" starts disabled — the required group has nothing selected yet.
+      const addButton = [...(container?.querySelectorAll("button") ?? [])].find((b) => b.textContent === "Add to cart") as HTMLButtonElement;
+      expect(addButton.disabled).toBe(true);
+
+      const checkbox = container?.querySelector("input[type='radio']") as HTMLInputElement;
+      await act(async () => {
+        checkbox.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      expect(addButton.disabled).toBe(false);
+
+      await act(async () => {
+        addButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+
+      expect(container?.querySelector("[role='dialog']")).toBeNull();
+      const cart = container?.querySelector("[aria-label='Cart']");
+      expect(cart?.textContent).toContain("Cheeseburger");
+      expect(cart?.textContent).toContain("Extra Cheese");
+    });
+
+    it("removes a line from the cart", async () => {
+      getMenuCategoriesMock.mockResolvedValue([]);
+      getMenuProductsMock.mockResolvedValue([product]);
+      syncMenuMock.mockResolvedValue("v1");
+      getModifierGroupsForProductMock.mockResolvedValue([]);
+      await renderAndFlush();
+
+      const tile = [...(container?.querySelectorAll("button") ?? [])].find((b) => b.textContent?.includes("Cheeseburger"));
+      await act(async () => {
+        tile?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+        await Promise.resolve();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      const removeButton = container?.querySelector("[aria-label='Remove Cheeseburger from cart']");
+      await act(async () => {
+        removeButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+
+      expect(container?.querySelector("[aria-label='Cart']")?.textContent).toContain("Cart is empty.");
+    });
   });
 });

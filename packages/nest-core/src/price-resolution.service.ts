@@ -10,6 +10,7 @@ export interface ResolvePriceParams {
   orderType: OrderType;
   productId?: string;
   variantId?: string;
+  modifierOptionId?: string;
   at?: Date;
 }
 
@@ -21,16 +22,17 @@ export interface ResolvedPriceRecord {
   unitPriceMinor: bigint;
 }
 
-const EXACTLY_ONE_REFERENCE = "exactly one of productId or variantId must be set";
+const EXACTLY_ONE_REFERENCE = "exactly one of productId, variantId or modifierOptionId must be set";
 
 /**
  * P2-04's actual pricing lookup: given where/when/what, finds the single best-
- * matching *published* price list and returns its price for that product or
- * variant — null if nothing matches (no price has been set up for this
- * combination at all, not an error). This is what P2-18 (invoice generation)
- * and the admin preview endpoint both call; it never mutates anything, so
- * unlike PriceListsService/PriceListItemsService there's no draft/published
- * distinction to enforce here beyond only ever looking at published rows.
+ * matching *published* price list and returns its price for that product,
+ * variant, or (since P2-12) modifier option — null if nothing matches (no
+ * price has been set up for this combination at all, not an error). This is
+ * what P2-18 (invoice generation), the admin preview endpoint, and P2-12's
+ * cart all call; it never mutates anything, so unlike PriceListsService/
+ * PriceListItemsService there's no draft/published distinction to enforce
+ * here beyond only ever looking at published rows.
  *
  * Tie-break order when more than one published list matches the same moment
  * (e.g. a branch-specific "Happy Hour" list and the year-round "Standard"
@@ -43,7 +45,8 @@ export class PriceResolutionService {
   constructor(@Inject(DATABASE) private readonly db: Database) {}
 
   async resolvePrice(params: ResolvePriceParams): Promise<ResolvedPriceRecord | null> {
-    if ((params.productId === undefined) === (params.variantId === undefined)) {
+    const referenceCount = [params.productId, params.variantId, params.modifierOptionId].filter((v) => v !== undefined).length;
+    if (referenceCount !== 1) {
       throw new BadRequestException(EXACTLY_ONE_REFERENCE);
     }
     const at = params.at ?? new Date();
@@ -52,7 +55,9 @@ export class PriceResolutionService {
       const itemMatch =
         params.productId !== undefined
           ? eq(schema.priceListItems.productId, params.productId)
-          : eq(schema.priceListItems.variantId, params.variantId!);
+          : params.variantId !== undefined
+            ? eq(schema.priceListItems.variantId, params.variantId)
+            : eq(schema.priceListItems.modifierOptionId, params.modifierOptionId!);
 
       const rows = await tx
         .select({

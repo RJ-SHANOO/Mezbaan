@@ -247,4 +247,13 @@ export {
   type UpdateDeliveryStatusParams,
 } from "./delivery-details.service.js";
 export { DeliveryDetailsController } from "./delivery-details.controller.js";
+export {
+  OrderItemsService,
+  type OrderItemRecord,
+  type OrderItemModifierRecord,
+  type AddOrderItemParams,
+  type UpdateOrderItemParams,
+  type RemoveOrderItemParams,
+} from "./order-items.service.js";
+export { OrderItemsController } from "./order-items.controller.js";
 export { OrdersModule } from "./orders.module.js";

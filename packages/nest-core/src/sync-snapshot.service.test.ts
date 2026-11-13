@@ -5,6 +5,8 @@ import type { SnapshotMenu } from "@mezbaan/contracts";
 import type { Pool } from "pg";
 import { AuditLogService } from "./audit-log.service.js";
 import { CategoriesService } from "./categories.service.js";
+import { ModifierGroupsService } from "./modifier-groups.service.js";
+import { ModifierOptionsService } from "./modifier-options.service.js";
 import { PriceListItemsService } from "./price-list-items.service.js";
 import { PriceListsService } from "./price-lists.service.js";
 import { PriceResolutionService } from "./price-resolution.service.js";
@@ -22,6 +24,8 @@ let categoriesService: CategoriesService;
 let productsService: ProductsService;
 let priceListsService: PriceListsService;
 let priceListItemsService: PriceListItemsService;
+let modifierGroupsService: ModifierGroupsService;
+let modifierOptionsService: ModifierOptionsService;
 
 beforeAll(() => {
   pool = createPool(APP_DATABASE_URL);
@@ -32,6 +36,8 @@ beforeAll(() => {
   productsService = new ProductsService(db, auditLogService);
   priceListsService = new PriceListsService(db, auditLogService);
   priceListItemsService = new PriceListItemsService(db, auditLogService);
+  modifierGroupsService = new ModifierGroupsService(db, auditLogService);
+  modifierOptionsService = new ModifierOptionsService(db, auditLogService);
 });
 
 afterAll(async () => {
@@ -210,6 +216,50 @@ describe("SyncSnapshotService", () => {
       const menu = parseMenu(snapshot.contentJson);
 
       expect(menu.prices).toEqual([]);
+    });
+
+    it("includes a modifier group/option attached to a product, with a resolved price for the option (P2-12)", async () => {
+      const fixture = await createFixture("snapshot-menu-modifiers");
+      const category = await categoriesService.create({ restaurantId: fixture.restaurantId, actorUserId: fixture.ownerUserId, name: "Burgers" });
+      const product = await productsService.create({ restaurantId: fixture.restaurantId, actorUserId: fixture.ownerUserId, categoryId: category.id, name: "Cheeseburger" });
+      const group = await modifierGroupsService.create({ restaurantId: fixture.restaurantId, actorUserId: fixture.ownerUserId, name: "Toppings", minSelections: 0 });
+      const option = await modifierOptionsService.create({ restaurantId: fixture.restaurantId, actorUserId: fixture.ownerUserId, modifierGroupId: group.id, name: "Extra Cheese" });
+      await productsService.attachModifierGroup({ restaurantId: fixture.restaurantId, actorUserId: fixture.ownerUserId, productId: product.id, modifierGroupId: group.id });
+      const priceList = await priceListsService.create({ restaurantId: fixture.restaurantId, actorUserId: fixture.ownerUserId, name: "Mods", currency: "PKR" });
+      await priceListItemsService.setPrice({ restaurantId: fixture.restaurantId, actorUserId: fixture.ownerUserId, priceListId: priceList.id, modifierOptionId: option.id, unitPriceMinor: 150n });
+      await priceListsService.publish({ restaurantId: fixture.restaurantId, actorUserId: fixture.ownerUserId, priceListId: priceList.id });
+
+      const snapshot = await service.buildSnapshot(fixture.restaurantId, fixture.branchId);
+      const menu = parseMenu(snapshot.contentJson);
+
+      expect(menu.modifierGroups.map((g) => g.id)).toContain(group.id);
+      expect(menu.modifierOptions.map((o) => o.id)).toContain(option.id);
+      expect(menu.productModifierGroups).toContainEqual(expect.objectContaining({ productId: product.id, modifierGroupId: group.id }));
+      const pricesForOption = menu.prices.filter((p) => p.modifierOptionId === option.id);
+      expect(pricesForOption).toHaveLength(3);
+      expect(pricesForOption[0]?.unitPriceMinor).toBe("150");
+    });
+
+    it("excludes a modifier group only attached to a product that isn't offered at this branch", async () => {
+      const fixture = await createFixture("snapshot-menu-modifiers-unavailable");
+      const category = await categoriesService.create({ restaurantId: fixture.restaurantId, actorUserId: fixture.ownerUserId, name: "Burgers" });
+      const product = await productsService.create({ restaurantId: fixture.restaurantId, actorUserId: fixture.ownerUserId, categoryId: category.id, name: "Cheeseburger" });
+      const group = await modifierGroupsService.create({ restaurantId: fixture.restaurantId, actorUserId: fixture.ownerUserId, name: "Toppings" });
+      const option = await modifierOptionsService.create({ restaurantId: fixture.restaurantId, actorUserId: fixture.ownerUserId, modifierGroupId: group.id, name: "Extra Cheese" });
+      await productsService.attachModifierGroup({ restaurantId: fixture.restaurantId, actorUserId: fixture.ownerUserId, productId: product.id, modifierGroupId: group.id });
+      await productsService.setBranchAvailability({
+        restaurantId: fixture.restaurantId,
+        actorUserId: fixture.ownerUserId,
+        productId: product.id,
+        branchId: fixture.branchId,
+        available: false,
+      });
+
+      const snapshot = await service.buildSnapshot(fixture.restaurantId, fixture.branchId);
+      const menu = parseMenu(snapshot.contentJson);
+
+      expect(menu.modifierGroups.map((g) => g.id)).not.toContain(group.id);
+      expect(menu.modifierOptions.map((o) => o.id)).not.toContain(option.id);
     });
 
     it("never includes another restaurant's menu", async () => {

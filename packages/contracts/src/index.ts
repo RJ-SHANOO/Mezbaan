@@ -241,6 +241,16 @@ export {
   type Order,
 } from "./orders.js";
 export {
+  AddOrderItemSchema,
+  type AddOrderItem,
+  UpdateOrderItemSchema,
+  type UpdateOrderItem,
+  OrderItemModifierSchema,
+  type OrderItemModifier,
+  OrderItemSchema,
+  type OrderItem,
+} from "./order-items.js";
+export {
   CreateDeliveryRiderSchema,
   type CreateDeliveryRider,
   UpdateDeliveryRiderSchema,

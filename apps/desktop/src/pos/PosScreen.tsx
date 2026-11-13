@@ -1,7 +1,10 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
-import { findMenuProductByBarcode, getMenuCategories, getMenuProducts, syncMenu } from "../shared/menu-client.js";
+import { findMenuProductByBarcode, getMenuCategories, getMenuProducts, getModifierGroupsForProduct, syncMenu, type MenuProduct, type ModifierGroup, type ModifierOption } from "../shared/menu-client.js";
+import { addLine, modifierToCartLineModifier, removeLine, type CartLine } from "./cart.js";
+import { CartPanel } from "./CartPanel.js";
 import { CategoryGrid } from "./CategoryGrid.js";
+import { ModifierPicker } from "./ModifierPicker.js";
 import { ProductGrid } from "./ProductGrid.js";
 import { useBarcodeScanner } from "./useBarcodeScanner.js";
 import { useKeyboardShortcuts } from "./useKeyboardShortcuts.js";
@@ -23,6 +26,9 @@ export function PosScreen(): ReactElement {
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [scanNotice, setScanNotice] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [cartLines, setCartLines] = useState<CartLine[]>([]);
+  const [modifierPicker, setModifierPicker] = useState<{ product: MenuProduct; groups: ModifierGroup[] } | null>(null);
+  const [cartError, setCartError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -54,20 +60,57 @@ export function PosScreen(): ReactElement {
   const categories = categoriesQuery.data ?? [];
   const products = productsQuery.data ?? [];
 
-  const handleScan = useCallback((code: string) => {
-    findMenuProductByBarcode(code)
-      .then((product) => {
-        if (product) {
-          setSelectedCategoryId(product.categoryId);
-          setSearch("");
-          setSelectedProductId(product.id);
-          setScanNotice(`Scanned: ${product.name}`);
-        } else {
-          setScanNotice(`Barcode not recognized: ${code}`);
-        }
-      })
-      .catch(() => setScanNotice(`Couldn't look up barcode: ${code}`));
+  const addProductToCart = useCallback((product: MenuProduct, modifiers: ModifierOption[] = []) => {
+    setCartError(null);
+    const line: CartLine = {
+      lineId: crypto.randomUUID(),
+      productId: product.id,
+      name: product.name,
+      quantity: 1,
+      unitPriceMinor: product.unitPriceMinor ?? "0",
+      currency: product.currency ?? "PKR",
+      modifiers: modifiers.map((option) => modifierToCartLineModifier(option, product.currency ?? "PKR")),
+    };
+    setCartLines((lines) => addLine(lines, line));
   }, []);
+
+  const handleProductTap = useCallback(
+    (product: MenuProduct) => {
+      setSelectedProductId(product.id);
+      if (product.unitPriceMinor === null) {
+        setCartError(`${product.name} has no price configured yet and can't be added to the cart.`);
+        return;
+      }
+      getModifierGroupsForProduct(product.id)
+        .then((groups) => {
+          if (groups.length === 0) {
+            addProductToCart(product);
+          } else {
+            setModifierPicker({ product, groups });
+          }
+        })
+        .catch(() => setCartError(`Couldn't load modifiers for ${product.name}.`));
+    },
+    [addProductToCart],
+  );
+
+  const handleScan = useCallback(
+    (code: string) => {
+      findMenuProductByBarcode(code)
+        .then((product) => {
+          if (product) {
+            setSelectedCategoryId(product.categoryId);
+            setSearch("");
+            setScanNotice(`Scanned: ${product.name}`);
+            handleProductTap(product);
+          } else {
+            setScanNotice(`Barcode not recognized: ${code}`);
+          }
+        })
+        .catch(() => setScanNotice(`Couldn't look up barcode: ${code}`));
+    },
+    [handleProductTap],
+  );
   useBarcodeScanner(handleScan);
 
   useKeyboardShortcuts({
@@ -101,24 +144,50 @@ export function PosScreen(): ReactElement {
           Menu may be out of date: {syncError}
         </p>
       )}
-
-      {categoriesQuery.isError && (
+      {cartError && (
         <p className="text-sm text-red-600" role="alert">
-          Couldn't load categories from the local cache.
+          {cartError}
         </p>
       )}
-      <CategoryGrid categories={categories} selectedCategoryId={selectedCategoryId} onSelect={setSelectedCategoryId} />
 
-      {productsQuery.isError ? (
-        <p className="py-8 text-center text-sm text-red-600" role="alert">
-          Couldn't load products from the local cache.
-        </p>
-      ) : (
-        <ProductGrid
-          products={products}
-          selectedProductId={selectedProductId}
-          onSelect={setSelectedProductId}
-          emptyMessage={productsQuery.isLoading ? "Loading menu…" : "No products match."}
+      <div className="flex flex-1 gap-4">
+        <div className="flex flex-1 flex-col gap-4">
+          {categoriesQuery.isError && (
+            <p className="text-sm text-red-600" role="alert">
+              Couldn't load categories from the local cache.
+            </p>
+          )}
+          <CategoryGrid categories={categories} selectedCategoryId={selectedCategoryId} onSelect={setSelectedCategoryId} />
+
+          {productsQuery.isError ? (
+            <p className="py-8 text-center text-sm text-red-600" role="alert">
+              Couldn't load products from the local cache.
+            </p>
+          ) : (
+            <ProductGrid
+              products={products}
+              selectedProductId={selectedProductId}
+              onSelect={(productId) => {
+                const product = products.find((p) => p.id === productId);
+                if (product) handleProductTap(product);
+              }}
+              emptyMessage={productsQuery.isLoading ? "Loading menu…" : "No products match."}
+            />
+          )}
+        </div>
+
+        <CartPanel lines={cartLines} onRemove={(lineId) => setCartLines((lines) => removeLine(lines, lineId))} />
+      </div>
+
+      {modifierPicker && (
+        <ModifierPicker
+          productName={modifierPicker.product.name}
+          groups={modifierPicker.groups}
+          onCancel={() => setModifierPicker(null)}
+          onConfirm={(selectedOptions) => {
+            addProductToCart(modifierPicker.product, selectedOptions);
+            setModifierPicker(null);
+          }}
         />
       )}
     </div>

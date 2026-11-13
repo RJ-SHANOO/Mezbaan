@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { SnapshotContentSchema, SyncSnapshotResponseSchema } from "./sync-snapshot.js";
 
-const emptyMenu = { branchId: "11111111-1111-1111-8111-111111111112", categories: [], products: [], variants: [], prices: [] };
+const emptyMenu = {
+  branchId: "11111111-1111-1111-8111-111111111112",
+  categories: [],
+  products: [],
+  variants: [],
+  prices: [],
+  modifierGroups: [],
+  modifierOptions: [],
+  productModifierGroups: [],
+};
 
 describe("SnapshotContentSchema", () => {
   it("accepts a well-formed snapshot with a staff member who has no PIN set", () => {
@@ -42,10 +51,38 @@ describe("SnapshotContentSchema", () => {
           priceListVersion: 1,
         },
       ],
+      modifierGroups: [],
+      modifierOptions: [],
+      productModifierGroups: [],
     };
     expect(SnapshotContentSchema.parse({ restaurantId: "11111111-1111-1111-8111-111111111111", branches: [], staff: [], menu }).menu).toEqual(menu);
 
     const badPrice = { ...menu.prices[0], variantId: "11111111-1111-1111-8111-111111111117" };
+    expect(() =>
+      SnapshotContentSchema.parse({ restaurantId: "11111111-1111-1111-8111-111111111111", branches: [], staff: [], menu: { ...menu, prices: [badPrice] } }),
+    ).toThrow();
+  });
+
+  it("accepts modifier groups/options attached to a product, with a resolved price for an option (P2-12)", () => {
+    const menu = {
+      ...emptyMenu,
+      modifierGroups: [{ id: "11111111-1111-1111-8111-111111111120", name: "Toppings", minSelections: 0, maxSelections: null, sortOrder: 0 }],
+      modifierOptions: [{ id: "11111111-1111-1111-8111-111111111121", modifierGroupId: "11111111-1111-1111-8111-111111111120", name: "Extra Cheese", sortOrder: 0 }],
+      productModifierGroups: [{ productId: "11111111-1111-1111-8111-111111111115", modifierGroupId: "11111111-1111-1111-8111-111111111120", sortOrder: 0 }],
+      prices: [
+        {
+          modifierOptionId: "11111111-1111-1111-8111-111111111121",
+          orderType: "dine_in",
+          unitPriceMinor: "150",
+          currency: "PKR",
+          priceListId: "11111111-1111-1111-8111-111111111116",
+          priceListVersion: 1,
+        },
+      ],
+    };
+    expect(SnapshotContentSchema.parse({ restaurantId: "11111111-1111-1111-8111-111111111111", branches: [], staff: [], menu }).menu).toEqual(menu);
+
+    const badPrice = { ...menu.prices[0], productId: "11111111-1111-1111-8111-111111111115" };
     expect(() =>
       SnapshotContentSchema.parse({ restaurantId: "11111111-1111-1111-8111-111111111111", branches: [], staff: [], menu: { ...menu, prices: [badPrice] } }),
     ).toThrow();

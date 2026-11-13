@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { OrderTypeSchema } from "./price-lists.js";
+import { exactlyOneOfThree, OrderTypeSchema } from "./price-lists.js";
 
 // Phase 1 scope was staff (with PIN hashes, so P1-27b can verify offline) and
 // branches (the closest thing to "settings" that exists today). P2-11 adds the
@@ -45,8 +45,10 @@ export type SnapshotBranch = z.infer<typeof SnapshotBranchSchema>;
  * exactly what PriceResolutionService.resolvePrice returning null means:
  * nothing has been priced for that combination yet, not an error.
  *
- * No modifier groups/options or combos here — those are P2-12's "the cart"
- * concern, the same scope line P2-09 drew around order line items.
+ * P2-12 adds modifier groups/options and their product attachments below —
+ * the cart UI needs to know what's offered on a product, and at what price,
+ * before it can let a cashier select one. Combos remain out of scope — no
+ * combo-aware cart flow exists yet.
  */
 export const SnapshotMenuCategorySchema = z.object({
   id: z.string().uuid(),
@@ -82,17 +84,42 @@ export const SnapshotMenuPriceSchema = z
   .object({
     productId: z.string().uuid().optional(),
     variantId: z.string().uuid().optional(),
+    modifierOptionId: z.string().uuid().optional(),
     orderType: OrderTypeSchema,
     unitPriceMinor: z.string().regex(MINOR_UNITS_PATTERN, "unitPriceMinor must be an integer string"),
     currency: z.string().length(3),
     priceListId: z.string().uuid(),
     priceListVersion: z.number().int(),
   })
-  .refine((data) => (data.productId !== undefined) !== (data.variantId !== undefined), {
-    message: "exactly one of productId or variantId must be set",
+  .refine((data) => exactlyOneOfThree(data.productId, data.variantId, data.modifierOptionId), {
+    message: "exactly one of productId, variantId or modifierOptionId must be set",
     path: ["productId"],
   });
 export type SnapshotMenuPrice = z.infer<typeof SnapshotMenuPriceSchema>;
+
+export const SnapshotModifierGroupSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  minSelections: z.number().int(),
+  maxSelections: z.number().int().nullable(),
+  sortOrder: z.number().int(),
+});
+export type SnapshotModifierGroup = z.infer<typeof SnapshotModifierGroupSchema>;
+
+export const SnapshotModifierOptionSchema = z.object({
+  id: z.string().uuid(),
+  modifierGroupId: z.string().uuid(),
+  name: z.string(),
+  sortOrder: z.number().int(),
+});
+export type SnapshotModifierOption = z.infer<typeof SnapshotModifierOptionSchema>;
+
+export const SnapshotProductModifierGroupSchema = z.object({
+  productId: z.string().uuid(),
+  modifierGroupId: z.string().uuid(),
+  sortOrder: z.number().int(),
+});
+export type SnapshotProductModifierGroup = z.infer<typeof SnapshotProductModifierGroupSchema>;
 
 export const SnapshotMenuSchema = z.object({
   branchId: z.string().uuid(),
@@ -100,6 +127,9 @@ export const SnapshotMenuSchema = z.object({
   products: z.array(SnapshotMenuProductSchema),
   variants: z.array(SnapshotMenuVariantSchema),
   prices: z.array(SnapshotMenuPriceSchema),
+  modifierGroups: z.array(SnapshotModifierGroupSchema),
+  modifierOptions: z.array(SnapshotModifierOptionSchema),
+  productModifierGroups: z.array(SnapshotProductModifierGroupSchema),
 });
 export type SnapshotMenu = z.infer<typeof SnapshotMenuSchema>;
 

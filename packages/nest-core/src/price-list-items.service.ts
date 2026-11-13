@@ -9,6 +9,7 @@ export interface PriceListItemRecord {
   priceListId: string;
   productId: string | null;
   variantId: string | null;
+  modifierOptionId: string | null;
   unitPriceMinor: bigint;
 }
 
@@ -18,6 +19,7 @@ export interface SetPriceListItemParams {
   priceListId: string;
   productId?: string;
   variantId?: string;
+  modifierOptionId?: string;
   unitPriceMinor: bigint;
 }
 
@@ -32,7 +34,8 @@ const PRICE_LIST_NOT_FOUND = "Price list not found";
 const ITEM_NOT_FOUND = "Price list item not found";
 const PRODUCT_NOT_FOUND = "Product not found";
 const VARIANT_NOT_FOUND = "Product variant not found";
-const EXACTLY_ONE_REFERENCE = "exactly one of productId or variantId must be set";
+const MODIFIER_OPTION_NOT_FOUND = "Modifier option not found";
+const EXACTLY_ONE_REFERENCE = "exactly one of productId, variantId or modifierOptionId must be set";
 const ONLY_DRAFT_EDITABLE = "only a draft price list's items can be changed";
 
 /**
@@ -40,9 +43,10 @@ const ONLY_DRAFT_EDITABLE = "only a draft price list's items can be changed";
  * PriceListsService.update, since a published price list's items are the
  * actual versioned, immutable thing P2-04 exists to guarantee. Setting a
  * price is an upsert (matching products.ts/modifier-groups.ts' other
- * attach-style operations): calling it again for the same product/variant in
- * the same price list updates the existing row instead of erroring or
- * duplicating it.
+ * attach-style operations): calling it again for the same product/variant/
+ * modifier option in the same price list updates the existing row instead
+ * of erroring or duplicating it. modifierOptionId (P2-12) completes what
+ * modifier-options.ts already said was the plan.
  */
 @Injectable()
 export class PriceListItemsService {
@@ -56,7 +60,8 @@ export class PriceListItemsService {
   }
 
   async setPrice(params: SetPriceListItemParams): Promise<PriceListItemRecord> {
-    if ((params.productId === undefined) === (params.variantId === undefined)) {
+    const referenceCount = [params.productId, params.variantId, params.modifierOptionId].filter((v) => v !== undefined).length;
+    if (referenceCount !== 1) {
       throw new BadRequestException(EXACTLY_ONE_REFERENCE);
     }
 
@@ -69,15 +74,23 @@ export class PriceListItemsService {
       if (params.productId !== undefined) {
         const rows = await tx.select({ id: schema.products.id }).from(schema.products).where(eq(schema.products.id, params.productId));
         if (rows.length === 0) throw new NotFoundException(PRODUCT_NOT_FOUND);
-      } else {
-        const rows = await tx.select({ id: schema.productVariants.id }).from(schema.productVariants).where(eq(schema.productVariants.id, params.variantId!));
+      } else if (params.variantId !== undefined) {
+        const rows = await tx.select({ id: schema.productVariants.id }).from(schema.productVariants).where(eq(schema.productVariants.id, params.variantId));
         if (rows.length === 0) throw new NotFoundException(VARIANT_NOT_FOUND);
+      } else {
+        const rows = await tx
+          .select({ id: schema.modifierOptions.id })
+          .from(schema.modifierOptions)
+          .where(eq(schema.modifierOptions.id, params.modifierOptionId!));
+        if (rows.length === 0) throw new NotFoundException(MODIFIER_OPTION_NOT_FOUND);
       }
 
       const matchCondition =
         params.productId !== undefined
           ? and(eq(schema.priceListItems.priceListId, params.priceListId), eq(schema.priceListItems.productId, params.productId))
-          : and(eq(schema.priceListItems.priceListId, params.priceListId), eq(schema.priceListItems.variantId, params.variantId!));
+          : params.variantId !== undefined
+            ? and(eq(schema.priceListItems.priceListId, params.priceListId), eq(schema.priceListItems.variantId, params.variantId))
+            : and(eq(schema.priceListItems.priceListId, params.priceListId), eq(schema.priceListItems.modifierOptionId, params.modifierOptionId!));
       const existingRows = await tx.select().from(schema.priceListItems).where(matchCondition);
       const existing = existingRows[0];
 
@@ -97,6 +110,7 @@ export class PriceListItemsService {
                 priceListId: params.priceListId,
                 productId: params.productId ?? null,
                 variantId: params.variantId ?? null,
+                modifierOptionId: params.modifierOptionId ?? null,
                 unitPriceMinor: params.unitPriceMinor,
               })
               .returning()
@@ -110,7 +124,12 @@ export class PriceListItemsService {
           action: "price_list_item.set",
           targetType: "price_list",
           targetId: params.priceListId,
-          metadata: { productId: params.productId, variantId: params.variantId, unitPriceMinor: params.unitPriceMinor.toString() },
+          metadata: {
+            productId: params.productId,
+            variantId: params.variantId,
+            modifierOptionId: params.modifierOptionId,
+            unitPriceMinor: params.unitPriceMinor.toString(),
+          },
         },
         tx,
       );
