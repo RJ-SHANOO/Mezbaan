@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "orders_table_occupancy_idx" ON "orders" USING btree ("table_id") WHERE "orders"."table_id" IS NOT NULL AND "orders"."status" IN ('open', 'held');

@@ -14,6 +14,7 @@ import {
 import { AuditLogService } from "./audit-log.service.js";
 import { DATABASE } from "./db.module.js";
 import { OrderItemsService, type OrderItemRecord } from "./order-items.service.js";
+import { isUniqueViolation } from "./pg-error.js";
 import type { OrderType } from "./price-lists.service.js";
 
 export type { OrderStatus };
@@ -161,17 +162,26 @@ export class OrdersService {
         await this.requireFreeTableInBranch(tx, params.tableId, params.branchId);
       }
 
-      const rows = await tx
-        .insert(schema.orders)
-        .values({
-          restaurantId: params.restaurantId,
-          branchId: params.branchId,
-          orderType: params.orderType,
-          tableId: params.tableId ?? null,
-          currency: params.currency,
-          openedByUserId: params.actorUserId,
-        })
-        .returning();
+      let rows: OrderRecord[];
+      try {
+        rows = await tx
+          .insert(schema.orders)
+          .values({
+            restaurantId: params.restaurantId,
+            branchId: params.branchId,
+            orderType: params.orderType,
+            tableId: params.tableId ?? null,
+            currency: params.currency,
+            openedByUserId: params.actorUserId,
+          })
+          .returning();
+      } catch (error) {
+        // P2-16: the pre-check above read-then-decided, which a concurrent
+        // request on another terminal can race past. orders_table_occupancy_idx
+        // is the real guard — this is what actually catches that race.
+        if (isUniqueViolation(error)) throw new BadRequestException(TABLE_ALREADY_OPEN);
+        throw error;
+      }
       const order = rows[0];
       if (!order) throw new Error("create: order insert returned no row");
 
@@ -227,7 +237,11 @@ export class OrdersService {
     options: { freesTable: boolean },
   ): Promise<OrderRecord> {
     return withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
-      const existingRows = await tx.select().from(schema.orders).where(eq(schema.orders.id, params.orderId));
+      // P2-16: lock the row so a second concurrent transition on this same
+      // order (another terminal closing while this one cancels, say) waits
+      // for this one to commit and then re-reads its real outcome, instead
+      // of racing past this check on stale data and silently overwriting it.
+      const existingRows = await tx.select().from(schema.orders).where(eq(schema.orders.id, params.orderId)).for("update");
       const existing = existingRows[0];
       if (!existing) throw new NotFoundException(ORDER_NOT_FOUND);
       try {
@@ -312,11 +326,18 @@ export class OrdersService {
       if (source.tableId === params.targetTableId) throw new BadRequestException(SAME_TABLE);
       await this.requireFreeTableInBranch(tx, params.targetTableId, source.branchId);
 
-      const rows = await tx
-        .update(schema.orders)
-        .set({ tableId: params.targetTableId, updatedAt: new Date() })
-        .where(eq(schema.orders.id, source.id))
-        .returning();
+      let rows: OrderRecord[];
+      try {
+        rows = await tx
+          .update(schema.orders)
+          .set({ tableId: params.targetTableId, updatedAt: new Date() })
+          .where(eq(schema.orders.id, source.id))
+          .returning();
+      } catch (error) {
+        // P2-16: same race as create() — orders_table_occupancy_idx is the real guard.
+        if (isUniqueViolation(error)) throw new BadRequestException(TABLE_ALREADY_OPEN);
+        throw error;
+      }
       const order = rows[0];
       if (!order) throw new NotFoundException(ORDER_NOT_FOUND);
 
@@ -417,17 +438,24 @@ export class OrdersService {
       }
       if (selectedItemIds.size === existingItemIds.size) throw new BadRequestException(MUST_LEAVE_ITEM_BEHIND);
 
-      const newOrderRows = await tx
-        .insert(schema.orders)
-        .values({
-          restaurantId: params.restaurantId,
-          branchId: source.branchId,
-          orderType: "dine_in",
-          tableId: params.targetTableId,
-          currency: source.currency,
-          openedByUserId: params.actorUserId,
-        })
-        .returning();
+      let newOrderRows: OrderRecord[];
+      try {
+        newOrderRows = await tx
+          .insert(schema.orders)
+          .values({
+            restaurantId: params.restaurantId,
+            branchId: source.branchId,
+            orderType: "dine_in",
+            tableId: params.targetTableId,
+            currency: source.currency,
+            openedByUserId: params.actorUserId,
+          })
+          .returning();
+      } catch (error) {
+        // P2-16: same race as create() — orders_table_occupancy_idx is the real guard.
+        if (isUniqueViolation(error)) throw new BadRequestException(TABLE_ALREADY_OPEN);
+        throw error;
+      }
       const newOrder = newOrderRows[0];
       if (!newOrder) throw new Error("splitTable: order insert returned no row");
 
@@ -458,9 +486,9 @@ export class OrdersService {
     });
   }
 
-  /** Loads an order and asserts it's dine-in (has a table) and currently occupying it (open or held). */
+  /** Loads an order and asserts it's dine-in (has a table) and currently occupying it (open or held). Row-locked (P2-16) — this is always the first read in a transfer/merge/split. */
   private async requireOccupyingDineInOrder(tx: Database, orderId: string): Promise<OrderRecord> {
-    const rows = await tx.select().from(schema.orders).where(eq(schema.orders.id, orderId));
+    const rows = await tx.select().from(schema.orders).where(eq(schema.orders.id, orderId)).for("update");
     const order = rows[0];
     if (!order) throw new NotFoundException(ORDER_NOT_FOUND);
     if (order.tableId === null) throw new BadRequestException(NOT_DINE_IN);
@@ -484,7 +512,7 @@ export class OrdersService {
     if (openOrderRows.length > 0) throw new BadRequestException(TABLE_ALREADY_OPEN);
   }
 
-  /** Loads a table in the given branch and returns whichever order currently occupies it, if any. */
+  /** Loads a table in the given branch and returns whichever order currently occupies it, if any. Row-locked (P2-16) — mergeTables writes this order's items next. */
   private async requireOccupiedTableOrder(tx: Database, tableId: string, branchId: string): Promise<OrderRecord> {
     const tableRows = await tx.select().from(schema.diningTables).where(eq(schema.diningTables.id, tableId));
     const table = tableRows[0];
@@ -494,7 +522,8 @@ export class OrdersService {
     const orderRows = await tx
       .select()
       .from(schema.orders)
-      .where(and(eq(schema.orders.tableId, tableId), inArray(schema.orders.status, TABLE_OCCUPYING_STATUSES)));
+      .where(and(eq(schema.orders.tableId, tableId), inArray(schema.orders.status, TABLE_OCCUPYING_STATUSES)))
+      .for("update");
     const order = orderRows[0];
     if (!order) throw new BadRequestException(NO_ORDER_ON_TARGET_TABLE);
     return order;

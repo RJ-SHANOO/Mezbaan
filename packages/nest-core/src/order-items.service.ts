@@ -287,8 +287,9 @@ export class OrderItemsService {
     });
   }
 
+  /** Row-locked (P2-16) — every cart mutation (add/update/remove/fire) starts here, so two terminals touching the same order serialize instead of racing. */
   private async requireOpenOrder(tx: Database, orderId: string): Promise<{ branchId: string; orderType: "dine_in" | "takeaway" | "delivery" }> {
-    const rows = await tx.select().from(schema.orders).where(eq(schema.orders.id, orderId));
+    const rows = await tx.select().from(schema.orders).where(eq(schema.orders.id, orderId)).for("update");
     const order = rows[0];
     if (!order) throw new NotFoundException(ORDER_NOT_FOUND);
     if (order.status !== "open") throw new BadRequestException(ORDER_NOT_OPEN);

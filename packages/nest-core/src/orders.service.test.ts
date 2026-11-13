@@ -458,4 +458,53 @@ describe("OrdersService", () => {
       service.splitTable({ restaurantId: tenant.restaurantId, orderId: order.id, actorUserId: tenant.ownerUserId, targetTableId: tableB, itemIds: [item.id] }),
     ).rejects.toThrow(BadRequestException);
   });
+
+  describe("P2-16: two terminals racing the same table or order", () => {
+    it("two terminals opening a dine-in order on the same table at once: exactly one succeeds", async () => {
+      const tenant = await createRestaurant("order-race-table");
+      const branchId = await createBranch(tenant.restaurantId);
+      const tableId = await createTable(tenant.restaurantId, tenant.ownerUserId, branchId);
+
+      const results = await Promise.allSettled([
+        service.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, branchId, orderType: "dine_in", currency: "PKR", tableId }),
+        service.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, branchId, orderType: "dine_in", currency: "PKR", tableId }),
+      ]);
+
+      const fulfilled = results.filter((r) => r.status === "fulfilled");
+      const rejected = results.filter((r) => r.status === "rejected");
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+      expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(BadRequestException);
+
+      // The table-occupancy index is the real guard — confirm it actually left
+      // exactly one open order behind, not (impossibly) zero or two.
+      const openOrders = await service.list({ restaurantId: tenant.restaurantId, branchId, status: "open" });
+      expect(openOrders.filter((o) => o.tableId === tableId)).toHaveLength(1);
+    });
+
+    it("two terminals transitioning the same order at once: the loser sees the real outcome, not stale data", async () => {
+      const tenant = await createRestaurant("order-race-transition");
+      const branchId = await createBranch(tenant.restaurantId);
+      const order = await service.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, branchId, orderType: "takeaway", currency: "PKR" });
+
+      const results = await Promise.allSettled([
+        service.close({ restaurantId: tenant.restaurantId, orderId: order.id, actorUserId: tenant.ownerUserId }),
+        service.cancel({ restaurantId: tenant.restaurantId, orderId: order.id, actorUserId: tenant.ownerUserId }),
+      ]);
+
+      // Row locking (FOR UPDATE) serializes the two transitions rather than
+      // letting both read the same "open" snapshot and both silently commit —
+      // whichever goes second must see the first's committed status and
+      // correctly reject re-transitioning an already-final order.
+      const fulfilled = results.filter((r) => r.status === "fulfilled");
+      const rejected = results.filter((r) => r.status === "rejected");
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+      expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(BadRequestException);
+
+      const history = await service.getStatusHistory({ restaurantId: tenant.restaurantId, orderId: order.id });
+      expect(history).toHaveLength(2);
+      expect(history.filter((h) => h.toStatus === "closed" || h.toStatus === "cancelled")).toHaveLength(1);
+    });
+  });
 });

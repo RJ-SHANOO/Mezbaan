@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, pgPolicy, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { check, pgPolicy, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { branches } from "./branches.js";
 import { diningTables } from "./dining-tables.js";
 import { restaurants } from "./restaurants.js";
@@ -52,6 +52,14 @@ export const orders = pgTable(
       "orders_table_id_matches_order_type",
       sql`(${table.orderType} = 'dine_in' AND ${table.tableId} IS NOT NULL) OR (${table.orderType} <> 'dine_in' AND ${table.tableId} IS NULL)`,
     ),
+    // P2-16: the real, DB-enforced guard behind "a table has at most one
+    // occupying order" — OrdersService's own pre-check (requireFreeTableInBranch)
+    // reads then decides, which two concurrent terminals can both pass before
+    // either writes. This index is what actually makes the second write fail
+    // instead of silently landing two orders on the same table.
+    uniqueIndex("orders_table_occupancy_idx")
+      .on(table.tableId)
+      .where(sql`${table.tableId} IS NOT NULL AND ${table.status} IN ('open', 'held')`),
     pgPolicy("orders_tenant_isolation", {
       for: "all",
       using: tenantMatch,
