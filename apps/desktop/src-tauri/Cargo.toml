@@ -55,3 +55,25 @@ scrypt = { version = "0.11", default-features = false }
 # backlog to catch up on sends many batches, and the JSON they contain compresses
 # very well (repeated key names, similar payload shapes).
 flate2 = "1"
+# P2-31: USB transport for ESC/POS receipt printers (libusb bindings). The
+# network transport uses only std::net — this is the one new dependency this
+# task needs. Not locally compiled (same pre-existing OpenSSL/Perl env issue
+# noted elsewhere in this file); CI is authoritative, same as P2-11/P2-12's
+# Rust work.
+rusb = "0.9"
+# P2-36: the branch hub's local servers — both deliberately synchronous
+# (std::net::TcpListener + a thread per connection), matching this crate's
+# existing no-async-runtime style (see the reqwest comment above) rather than
+# pulling in tokio just for this. tiny_http serves plain HTTP; tungstenite
+# handles the WebSocket upgrade/handshake on its own raw TcpListener. Exact
+# versions picked from the latest known-stable majors at the time this was
+# written — not verified against a live crates.io this session (no network
+# access), same posture as every other new dependency in this file; CI is
+# authoritative.
+tiny_http = "0.12"
+tungstenite = "0.24"
+# P2-36: hashes a presented device token the same way the server does
+# (opaque-token.ts's hashOpaqueToken — plain SHA-256 hex, no salt) so the hub
+# can verify a peer entirely offline against its locally cached roster. Pure
+# Rust, no OpenSSL — same reasoning as ed25519-dalek above.
+sha2 = "0.10"

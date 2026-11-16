@@ -1,12 +1,27 @@
 mod db;
 mod device_token;
 mod document_number;
+mod escpos;
+mod hub_auth;
+mod hub_commands;
+mod hub_discovery;
+mod hub_roster;
+mod hub_server;
+mod hub_state;
 mod manager_pin_offline;
 mod menu_cache;
 mod menu_commands;
 mod operation_log;
 mod pending_work;
 mod pending_work_commands;
+mod print_queue;
+mod printer_commands;
+mod printer_discovery;
+mod printer_settings;
+mod printer_settings_commands;
+mod printer_transport;
+mod receipt_commands;
+mod receipt_template;
 mod secure_store;
 mod snapshot_sync;
 mod sync_client;
@@ -49,6 +64,26 @@ pub fn run() {
             menu_commands::find_menu_product_by_barcode,
             menu_commands::get_modifier_groups_for_product,
             menu_commands::get_menu_sync_version,
+            printer_commands::print_raw_escpos,
+            printer_commands::kick_cash_drawer,
+            printer_commands::enqueue_print_job,
+            printer_commands::enqueue_reprint_job,
+            printer_commands::process_print_queue,
+            printer_commands::get_print_queue_status,
+            printer_commands::list_print_jobs,
+            printer_commands::list_usb_printer_candidates,
+            printer_commands::print_test_page,
+            printer_settings_commands::save_printer_config,
+            printer_settings_commands::load_printer_config,
+            printer_settings_commands::clear_printer_config,
+            receipt_commands::render_receipt,
+            hub_commands::start_hub,
+            hub_commands::stop_hub,
+            hub_commands::get_hub_status,
+            hub_commands::refresh_hub_roster,
+            hub_commands::discover_hubs,
+            hub_commands::check_hub_reachable,
+            hub_commands::publish_hub_update,
             mark_clean_shutdown,
         ])
         .setup(|app| {
@@ -97,6 +132,10 @@ pub fn run() {
             };
             app.manage(db_state);
             app.manage(BootStatusState(Mutex::new(boot_status)));
+            // P2-36: hub mode starts OFF on every launch — it's an explicit,
+            // per-session choice (start_hub), never something that silently
+            // turns itself on just because this terminal was once a hub.
+            app.manage(hub_commands::HubState(Mutex::new(None)));
 
             // Only the very first, normally-launched instance spawns a watchdog — a
             // relaunch the watchdog itself triggered carries WATCHED_ARG, since the
