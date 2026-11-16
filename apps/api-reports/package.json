@@ -22,6 +22,7 @@
     "rxjs": "^7.8.2"
   },
   "devDependencies": {
-    "@nestjs/cli": "^12.0.11"
+    "@nestjs/cli": "^12.0.11",
+    "@types/pg": "^8.23.1"
   }
 }

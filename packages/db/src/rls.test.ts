@@ -28,6 +28,8 @@ import {
   diningTables,
   floors,
   invoices,
+  paymentMethodSettings,
+  payments,
   orderItemModifiers,
   orderItems,
   orders,
@@ -1214,6 +1216,95 @@ describe("invoices — tenant isolation and append-only (P2-18)", () => {
       withTenant(db, { restaurantId }, (tx) => tx.update(invoices).set({ totalMinor: 9999n }).where(eq(invoices.id, invoiceId))),
     ).rejects.toThrow();
     await expect(withTenant(db, { restaurantId }, (tx) => tx.delete(invoices).where(eq(invoices.id, invoiceId)))).rejects.toThrow();
+  });
+});
+
+describe("payment_method_settings — tenant isolation (P2-19)", () => {
+  it("a setting created under one tenant is never visible to another tenant's session", async () => {
+    const restaurantAId = await createRestaurant("Tenant NNN5");
+    const restaurantBId = await createRestaurant("Tenant OOO5");
+
+    await withTenant(db, { restaurantId: restaurantAId }, (tx) => tx.insert(paymentMethodSettings).values({ restaurantId: restaurantAId, method: "wallet", enabled: false }));
+
+    const seenByB = await withTenant(db, { restaurantId: restaurantBId }, (tx) => tx.select().from(paymentMethodSettings));
+    expect(seenByB).toEqual([]);
+  });
+});
+
+describe("payments — tenant isolation and append-only (P2-19)", () => {
+  async function createInvoiceFixture(restaurantId: string, userId: string): Promise<{ branchId: string; invoiceId: string }> {
+    return withTenant(db, { restaurantId }, async (tx) => {
+      const branchRows = await tx.insert(branches).values({ restaurantId, name: "Main", timezone: "Asia/Karachi" }).returning({ id: branches.id });
+      const branchId = branchRows[0]?.id;
+      if (!branchId) throw new Error("fixture: branch insert returned no row");
+      const orderRows = await tx
+        .insert(orders)
+        .values({ restaurantId, branchId, orderType: "takeaway", currency: "PKR", openedByUserId: userId, status: "closed" })
+        .returning({ id: orders.id });
+      const orderId = orderRows[0]?.id;
+      if (!orderId) throw new Error("fixture: order insert returned no row");
+      const deviceRows = await tx.insert(devices).values({ restaurantId, branchId, label: "Till 1", deviceType: "pos_terminal" }).returning({ id: devices.id });
+      const deviceId = deviceRows[0]?.id;
+      if (!deviceId) throw new Error("fixture: device insert returned no row");
+      const invoiceRows = await tx
+        .insert(invoices)
+        .values({
+          restaurantId,
+          branchId,
+          orderId,
+          deviceId,
+          documentNumber: `B1-T1-${Math.floor(Math.random() * 1_000_000)
+            .toString()
+            .padStart(6, "0")}`,
+          subtotalMinor: 1000n,
+          serviceChargeMinor: 0n,
+          taxMinor: 0n,
+          totalMinor: 1000n,
+          currency: "PKR",
+          pricingMode: "exclusive",
+          taxRateBasisPoints: 0,
+          serviceChargeRateBasisPoints: null,
+          appliedTaxRules: [],
+          actorUserId: userId,
+        })
+        .returning({ id: invoices.id });
+      const invoiceId = invoiceRows[0]?.id;
+      if (!invoiceId) throw new Error("fixture: invoice insert returned no row");
+      return { branchId, invoiceId };
+    });
+  }
+
+  it("a payment created under one tenant is never visible to another tenant's session", async () => {
+    const restaurantAId = await createRestaurant("Tenant PPP5");
+    const restaurantBId = await createRestaurant("Tenant QQQ5");
+    const userAId = await createUser(restaurantAId, "payment-tenant-a");
+    const { branchId, invoiceId } = await createInvoiceFixture(restaurantAId, userAId);
+
+    await withTenant(db, { restaurantId: restaurantAId }, (tx) =>
+      tx.insert(payments).values({ restaurantId: restaurantAId, branchId, invoiceId, method: "cash", amountMinor: 1000n, tipMinor: 0n, currency: "PKR", actorUserId: userAId }),
+    );
+
+    const seenByB = await withTenant(db, { restaurantId: restaurantBId }, (tx) => tx.select().from(payments));
+    expect(seenByB).toEqual([]);
+  });
+
+  it("UPDATE and DELETE are revoked at the database level", async () => {
+    const restaurantId = await createRestaurant("Tenant RRR5");
+    const userId = await createUser(restaurantId, "payment-append-only");
+    const { branchId, invoiceId } = await createInvoiceFixture(restaurantId, userId);
+
+    const paymentId = await withTenant(db, { restaurantId }, async (tx) => {
+      const rows = await tx
+        .insert(payments)
+        .values({ restaurantId, branchId, invoiceId, method: "cash", amountMinor: 1000n, tipMinor: 0n, currency: "PKR", actorUserId: userId })
+        .returning({ id: payments.id });
+      const id = rows[0]?.id;
+      if (!id) throw new Error("fixture: payment insert returned no row");
+      return id;
+    });
+
+    await expect(withTenant(db, { restaurantId }, (tx) => tx.update(payments).set({ amountMinor: 9999n }).where(eq(payments.id, paymentId)))).rejects.toThrow();
+    await expect(withTenant(db, { restaurantId }, (tx) => tx.delete(payments).where(eq(payments.id, paymentId)))).rejects.toThrow();
   });
 });
 
