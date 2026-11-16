@@ -1,9 +1,10 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { applyFixedDiscount, applyPercentageDiscount, money } from "@mezbaan/domain";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { schema, withTenant, type Database } from "@mezbaan/db";
 import { AuditLogService } from "./audit-log.service.js";
 import { DATABASE } from "./db.module.js";
+import { OutboxService } from "./outbox.service.js";
 import type { OrderItemRecord } from "./order-items.service.js";
 import { computeOrderTotal } from "./orders.service.js";
 import { isUniqueViolation } from "./pg-error.js";
@@ -89,6 +90,11 @@ export class InvoicesService {
     @Inject(DATABASE) private readonly db: Database,
     private readonly auditLogService: AuditLogService,
     private readonly taxCalculationService: TaxCalculationService,
+    // P2-26: optional so every existing test file instantiating InvoicesService
+    // directly with 3 arguments still compiles unchanged, same precedent as
+    // OrdersService.businessDaysService (P2-30) and PriceListsService.menuSnapshotCacheService
+    // (P2-43). Without it, generate() simply doesn't enqueue a reconciliation job.
+    @Optional() private readonly outboxService?: OutboxService,
   ) {}
 
   async generate(params: GenerateInvoiceParams): Promise<InvoiceRecord> {
@@ -132,7 +138,8 @@ export class InvoicesService {
       }
 
       const items = await attachModifiersTo(tx, targetItems);
-      let subtotal = computeOrderTotal(items, order.currency);
+      const rawSubtotal = computeOrderTotal(items, order.currency);
+      let subtotal = rawSubtotal;
 
       // P2-22: a bill-level discount only has a well-defined meaning for a whole-
       // order invoice — a split-by-item/seat invoice covers a subset with no single
@@ -144,6 +151,10 @@ export class InvoicesService {
           subtotal = applyFixedDiscount(subtotal, money(order.discountAmountMinor, subtotal.currency)).afterDiscount;
         }
       }
+      // P2-26: recorded as a precise fact (not re-derivable later from order.discountPercentBasisPoints
+      // alone, since that field can change after the fact and this invoice's own discount is fixed at
+      // generation time) so reconciliation can recompute subtotalMinor exactly.
+      const billDiscountAppliedMinor = rawSubtotal.amountMinor - subtotal.amountMinor;
 
       const charges = await this.taxCalculationService.previewCharges({
         restaurantId: params.restaurantId,
@@ -187,6 +198,7 @@ export class InvoicesService {
             taxRateBasisPoints: charges.taxRateBasisPoints,
             serviceChargeRateBasisPoints: charges.serviceChargeRateBasisPoints,
             appliedTaxRules: charges.appliedTaxRules,
+            billDiscountAppliedMinor,
             actorUserId: params.actorUserId,
           })
           .returning();
@@ -211,6 +223,15 @@ export class InvoicesService {
           targetId: invoice.id,
           metadata: { orderId: params.orderId, documentNumber, totalMinor: invoice.totalMinor.toString(), itemCount: targetItems.length },
         },
+        tx,
+      );
+
+      // P2-26: same transaction as the invoice insert (rule: "the outbox row is
+      // written in the same transaction as the business change") — if this
+      // commits, a reconciliation check is guaranteed to eventually run; if the
+      // transaction rolls back, no orphaned outbox row is left behind either.
+      await this.outboxService?.record(
+        { restaurantId: params.restaurantId, aggregateType: "invoice", aggregateId: invoice.id, eventType: "invoice.generated", payload: { invoiceId: invoice.id } },
         tx,
       );
 
@@ -267,7 +288,11 @@ export class InvoicesService {
 }
 
 /** Mirrors OrderItemsService's own private attachModifiers — duplicated rather than shared because that method only ever runs inside OrderItemsService's own transaction, and this one needs to run inside InvoicesService's (the lock on order_items has to be part of the same transaction as the invoice insert that follows it). */
-async function attachModifiersTo(tx: Database, items: Array<typeof schema.orderItems.$inferSelect>): Promise<OrderItemRecord[]> {
+/** Exported for ReconciliationService (P2-26) — it needs the exact same
+ * item-plus-modifiers shape computeOrderTotal expects, re-derived fresh
+ * from the database rather than reusing anything InvoicesService already
+ * computed in memory. */
+export async function attachModifiersTo(tx: Database, items: Array<typeof schema.orderItems.$inferSelect>): Promise<OrderItemRecord[]> {
   if (items.length === 0) return [];
   const modifierRows = await tx.select().from(schema.orderItemModifiers).where(inArray(schema.orderItemModifiers.orderItemId, items.map((i) => i.id)));
   return items.map((item) => ({ ...item, modifiers: modifierRows.filter((m) => m.orderItemId === item.id) })) as OrderItemRecord[];

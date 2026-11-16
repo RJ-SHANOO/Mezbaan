@@ -54,3 +54,4 @@ export { cashMovements } from "./cash-movements.js";
 export { cashDrawerOpenEvents } from "./cash-drawer-open-events.js";
 export { businessDays } from "./business-days.js";
 export { receiptSettings } from "./receipt-settings.js";
+export { invoiceReconciliationFlags } from "./invoice-reconciliation-flags.js";

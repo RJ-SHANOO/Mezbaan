@@ -64,6 +64,13 @@ export const invoices = pgTable(
     // [{ name, rateBasisPoints }] — the actual stacked tax rules applied (TaxRulesService.AppliedTaxRule),
     // kept for audit/receipt-printing even if a rule's own configuration changes later.
     appliedTaxRules: jsonb("applied_tax_rules").notNull(),
+    // P2-26: the exact minor-unit amount a bill-level discount (orders.discountPercentBasisPoints/
+    // discountAmountMinor) subtracted from the raw item subtotal when this invoice was generated —
+    // null/0 when none applied. Recorded so reconciliation can recompute subtotalMinor exactly
+    // rather than guessing whether this invoice covered "the whole order" (the condition
+    // InvoicesService.generate itself uses to decide whether a bill discount applies at all,
+    // which isn't otherwise recoverable from the invoice row after the fact).
+    billDiscountAppliedMinor: bigint("bill_discount_applied_minor", { mode: "bigint" }),
     actorUserId: uuid("actor_user_id")
       .notNull()
       .references(() => users.id),

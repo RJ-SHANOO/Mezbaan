@@ -68,7 +68,15 @@ function backoffMs(attempts: number): number {
 @Injectable()
 export class OutboxWorkerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(OutboxWorkerService.name);
-  private readonly handlers: Record<string, OutboxHandler>;
+  // Not readonly: registerHandler() (P2-26) lets a caller add a handler that
+  // itself needs other DI-resolved providers (e.g. ReconciliationService),
+  // which aren't available yet at the point OUTBOX_WORKER_OPTIONS's plain
+  // `handlers` map is constructed (that's a static useValue at import time,
+  // before Nest has built anything). Safe to mutate after construction:
+  // processBatch() always reads this.handlers fresh per claimed record, and
+  // onModuleInit's first poll only fires after pollIntervalMs (default 5s) —
+  // comfortably after every other provider's own onModuleInit has run.
+  private handlers: Record<string, OutboxHandler>;
   private readonly autoStart: boolean;
   private readonly batchSize: number;
   private readonly pollIntervalMs: number;
@@ -93,6 +101,13 @@ export class OutboxWorkerService implements OnModuleInit, OnModuleDestroy {
   onModuleDestroy(): void {
     this.stopped = true;
     if (this.timer) clearTimeout(this.timer);
+  }
+
+  /** P2-26: adds (or replaces) one event type's handler after construction —
+   * see the comment on `handlers` above for why this exists instead of
+   * passing every handler through OUTBOX_WORKER_OPTIONS directly. */
+  registerHandler(eventType: string, handler: OutboxHandler): void {
+    this.handlers[eventType] = handler;
   }
 
   private scheduleNextPoll(): void {

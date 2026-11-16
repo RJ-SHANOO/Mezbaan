@@ -39,6 +39,7 @@ import { TaxRulesService } from "./tax-rules.service.js";
 import { TaxSettingsService } from "./tax-settings.service.js";
 import { OrderItemVoidController, VoidReasonCodesController } from "./voids.controller.js";
 import { VoidsService } from "./voids.service.js";
+import { OutboxService } from "./outbox.service.js";
 
 /** P2-09: order headers for dine-in, takeaway and delivery. P2-10 (customer/
  * address capture, rider assignment, delivery status), P2-12 (the cart),
@@ -114,6 +115,11 @@ export class OrdersModule {
         ServiceChargeSettingsService,
         TaxCalculationService,
         AuditLogService,
+        // P2-26: InvoicesService.generate enqueues an "invoice.generated"
+        // outbox event in the same transaction as the invoice itself —
+        // without this provider, its @Optional() OutboxService stays
+        // undefined and no reconciliation job is ever enqueued.
+        OutboxService,
       ],
       exports: [OrdersService, DeliveryRidersService, DeliveryDetailsService, OrderItemsService, InvoicesService, PaymentsService, DiscountsService, VoidsService, RefundsService, CreditCustomersService, ShiftsService, CashMovementsService, ShiftReportsService, BusinessDaysService, ReceiptSettingsService],
     };

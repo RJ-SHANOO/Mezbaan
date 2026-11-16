@@ -267,6 +267,13 @@
       "when": 1794735574792,
       "tag": "0037_short_george_stacy",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1794856692658,
+      "tag": "0038_perpetual_hemingway",
+      "breakpoints": true
     }
   ]
 }

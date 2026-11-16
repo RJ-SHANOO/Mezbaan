@@ -333,6 +333,12 @@ export {
   type RefundReport,
 } from "./sales-reports.js";
 export {
+  ListReconciliationFlagsQuerySchema,
+  type ListReconciliationFlagsQuery,
+  ReconciliationFlagSchema,
+  type ReconciliationFlag,
+} from "./reconciliation.js";
+export {
   SetReceiptSettingsSchema,
   type SetReceiptSettings,
   ReceiptSettingsSchema,

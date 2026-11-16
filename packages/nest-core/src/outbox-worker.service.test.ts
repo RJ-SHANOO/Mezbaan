@@ -198,3 +198,35 @@ describe("OutboxWorkerService polling lifecycle", () => {
     }
   });
 });
+
+describe("OutboxWorkerService.registerHandler() (P2-26)", () => {
+  it("a handler added after construction is used by a later processBatch call", async () => {
+    const restaurantId = await createRestaurant("outbox-worker-register-handler");
+    const id = await seedOutboxRow(restaurantId, "late.registered");
+    const instance = worker({});
+
+    const seen: OutboxRecord[] = [];
+    instance.registerHandler("late.registered", async (record) => void seen.push(record));
+    await instance.processBatch();
+
+    expect(seen.some((record) => record.id === id)).toBe(true);
+    const row = await readRow(id);
+    expect(row.status).toBe("processed");
+  });
+
+  it("replaces an existing handler for the same event type rather than adding a second one", async () => {
+    const restaurantId = await createRestaurant("outbox-worker-replace-handler");
+    const id = await seedOutboxRow(restaurantId, "replaceable");
+    const first = vi.fn();
+    const second = vi.fn();
+    const instance = worker({ replaceable: async (record) => void first(record) });
+
+    instance.registerHandler("replaceable", async (record) => void second(record));
+    await instance.processBatch();
+
+    expect(second).toHaveBeenCalled();
+    expect(first).not.toHaveBeenCalled();
+    const row = await readRow(id);
+    expect(row.status).toBe("processed");
+  });
+});

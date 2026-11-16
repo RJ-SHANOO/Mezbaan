@@ -366,6 +366,8 @@ export {
   type RefundReport as RefundReportRecord,
 } from "./sales-reports.service.js";
 export { SalesReportsController } from "./sales-reports.controller.js";
+export { ReconciliationService, type ReconciliationFlagRecord } from "./reconciliation.service.js";
+export { ReconciliationFlagsController } from "./reconciliation.controller.js";
 export { RedisModule, REDIS, type RedisModuleOptions } from "./redis.module.js";
 export { MenuSnapshotCacheService } from "./menu-snapshot-cache.service.js";
 export { OrdersModule } from "./orders.module.js";
