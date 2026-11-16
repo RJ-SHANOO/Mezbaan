@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import { NestFactory, Reflector } from "@nestjs/core";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
+import fastifyMultipart from "@fastify/multipart";
 import type { Database } from "@mezbaan/db";
 import {
   createLogger,
@@ -9,6 +10,7 @@ import {
   ensureDefaultMetrics,
   GlobalExceptionFilter,
   initSentry,
+  MAX_UPLOAD_BYTES,
   PermissionGuard,
   PermissionsService,
   PinoNestLogger,
@@ -37,6 +39,12 @@ async function bootstrap(): Promise<void> {
     origin: (process.env.CORS_ORIGIN ?? "http://localhost:5173").split(","),
     methods: ["GET", "POST", "PATCH", "DELETE"],
   });
+
+  // P2-44: ImageUploadController reads multipart/form-data. The fileSize limit
+  // matches ImageUploadService.MAX_UPLOAD_BYTES exactly — rejecting an oversized
+  // stream before it's fully buffered, not just after, same defense-in-depth
+  // reasoning as the limits already applied elsewhere in this codebase.
+  await app.register(fastifyMultipart, { limits: { fileSize: MAX_UPLOAD_BYTES } });
 
   app.useGlobalFilters(new GlobalExceptionFilter(logger));
   // Order matters: PermissionGuard reads getTenantContext(), which TenantContextGuard

@@ -368,6 +368,9 @@ export {
 export { SalesReportsController } from "./sales-reports.controller.js";
 export { ReconciliationService, type ReconciliationFlagRecord } from "./reconciliation.service.js";
 export { ReconciliationFlagsController } from "./reconciliation.controller.js";
+export { StorageModule, S3_CLIENT, STORAGE_OPTIONS, type StorageModuleOptions } from "./storage.module.js";
+export { ImageUploadService, MAX_UPLOAD_BYTES, type UploadImageParams, type UploadedImage as UploadedImageRecord } from "./image-upload.service.js";
+export { ImageUploadController } from "./image-upload.controller.js";
 export { RedisModule, REDIS, type RedisModuleOptions } from "./redis.module.js";
 export { MenuSnapshotCacheService } from "./menu-snapshot-cache.service.js";
 export { OrdersModule } from "./orders.module.js";

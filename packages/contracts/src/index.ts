@@ -332,6 +332,7 @@ export {
   RefundReportSchema,
   type RefundReport,
 } from "./sales-reports.js";
+export { UploadedImageSchema, type UploadedImage } from "./images.js";
 export {
   ListReconciliationFlagsQuerySchema,
   type ListReconciliationFlagsQuery,
