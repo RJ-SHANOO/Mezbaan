@@ -28,6 +28,18 @@ export interface OrderItemRecord {
   course: string | null;
   firedAt: Date | null;
   firedByUserId: string | null;
+  /** P2-21: which split invoice billed this item, if any — null until InvoicesService.generate covers it. */
+  invoiceId: string | null;
+  /** P2-22: at most one of these two is set — see DiscountsService.applyItemDiscount. */
+  discountPercentBasisPoints: number | null;
+  discountAmountMinor: bigint | null;
+  discountReasonCode: string | null;
+  discountApprovedByUserId: string | null;
+  /** P2-23: null means "not voided" — see VoidsService.voidItem. */
+  voidedAt: Date | null;
+  voidedByUserId: string | null;
+  voidReasonCode: string | null;
+  voidApprovedByUserId: string | null;
   modifiers: OrderItemModifierRecord[];
   createdAt: Date;
   updatedAt: Date;
@@ -83,6 +95,7 @@ const FIRE_TARGET_REQUIRED = "exactly one of itemIds or course must be given, an
 const FIRE_ITEMS_NOT_FOUND = "one or more selected items don't belong to this order";
 const FIRE_COURSE_NOT_FOUND = "no items on this order have that course";
 const ALREADY_FIRED = "every selected item has already been fired to the kitchen";
+const CANNOT_REMOVE_FIRED_ITEM = "this item has already been fired to the kitchen — void it instead of removing it";
 
 /**
  * P2-12: "the cart." Every add resolves and snapshots a real price via
@@ -213,9 +226,18 @@ export class OrderItemsService {
     await withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
       await this.requireOpenOrder(tx, params.orderId);
 
+      // P2-23: once an item has been fired, deleting it outright would bypass
+      // VoidsService's whole reason-code/manager-approval gate (rule 6: a void
+      // after kitchen firing is always recorded and approved, never silent) —
+      // removeItem stays a plain "oops, wrong button" correction, but only for
+      // an item the kitchen was never told about.
+      const itemRows = await tx.select({ firedAt: schema.orderItems.firedAt, orderId: schema.orderItems.orderId }).from(schema.orderItems).where(eq(schema.orderItems.id, params.itemId));
+      const item = itemRows[0];
+      if (!item || item.orderId !== params.orderId) throw new NotFoundException(ITEM_NOT_FOUND);
+      if (item.firedAt !== null) throw new BadRequestException(CANNOT_REMOVE_FIRED_ITEM);
+
       await tx.delete(schema.orderItemModifiers).where(eq(schema.orderItemModifiers.orderItemId, params.itemId));
-      const deletedRows = await tx.delete(schema.orderItems).where(eq(schema.orderItems.id, params.itemId)).returning({ id: schema.orderItems.id });
-      if (deletedRows.length === 0) throw new NotFoundException(ITEM_NOT_FOUND);
+      await tx.delete(schema.orderItems).where(eq(schema.orderItems.id, params.itemId));
 
       await this.auditLogService.record(
         { restaurantId: params.restaurantId, actorUserId: params.actorUserId, action: "order_item.removed", targetType: "order_item", targetId: params.itemId },

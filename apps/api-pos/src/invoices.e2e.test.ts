@@ -214,3 +214,90 @@ describe("invoices — generation over HTTP (api-pos, P2-18)", () => {
     expect(generate.statusCode).toBe(404);
   });
 });
+
+async function createClosedOrderWithSeats(tenant: Tenant, productId: string, seats: number[]): Promise<{ orderId: string; itemIds: string[] }> {
+  const create = await app.inject({
+    method: "POST",
+    url: "/orders",
+    headers: { authorization: `Bearer ${tenant.accessToken}` },
+    payload: { branchId: tenant.branchId, orderType: "takeaway", currency: "PKR" },
+  });
+  const orderId = create.json<{ id: string }>().id;
+
+  const itemIds: string[] = [];
+  for (const seatNumber of seats) {
+    const addItem = await app.inject({
+      method: "POST",
+      url: `/orders/${orderId}/items`,
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+      payload: { productId, seatNumber },
+    });
+    itemIds.push(addItem.json<{ id: string }>().id);
+  }
+
+  await app.inject({ method: "POST", url: `/orders/${orderId}/close`, headers: { authorization: `Bearer ${tenant.accessToken}` } });
+  return { orderId, itemIds };
+}
+
+describe("invoices — splitting by seat and by item over HTTP (api-pos, P2-21)", () => {
+  it("splits by seat into one invoice per seat", async () => {
+    const tenant = await createTenant("invoice-e2e-split-seat");
+    const productId = await createPricedProduct(tenant, 10_000n);
+    const deviceId = await createDevice(tenant);
+    const { orderId } = await createClosedOrderWithSeats(tenant, productId, [1, 1, 2]);
+
+    const split = await app.inject({
+      method: "POST",
+      url: `/orders/${orderId}/invoices/split-by-seat`,
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+      payload: { deviceId },
+    });
+    expect(split.statusCode).toBe(201);
+    const invoices = split.json<{ subtotalMinor: string }[]>();
+    expect(invoices).toHaveLength(2);
+    expect(invoices.map((inv) => inv.subtotalMinor).sort()).toEqual(["10000", "20000"]);
+
+    const list = await app.inject({ method: "GET", url: `/orders/${orderId}/invoices`, headers: { authorization: `Bearer ${tenant.accessToken}` } });
+    expect(list.statusCode).toBe(200);
+    expect(list.json<unknown[]>()).toHaveLength(2);
+  });
+
+  it("splits by caller-chosen item groups", async () => {
+    const tenant = await createTenant("invoice-e2e-split-items");
+    const productId = await createPricedProduct(tenant, 10_000n);
+    const deviceId = await createDevice(tenant);
+    const { orderId, itemIds } = await createClosedOrderWithSeats(tenant, productId, [1, 2, 3]);
+
+    const split = await app.inject({
+      method: "POST",
+      url: `/orders/${orderId}/invoices/split-by-items`,
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+      payload: { deviceId, groups: [[itemIds[0], itemIds[1]], [itemIds[2]]] },
+    });
+    expect(split.statusCode).toBe(201);
+    const invoices = split.json<{ subtotalMinor: string }[]>();
+    expect(invoices.map((inv) => inv.subtotalMinor).sort()).toEqual(["10000", "20000"]);
+  });
+
+  it("rejects an item id already billed on a prior split invoice", async () => {
+    const tenant = await createTenant("invoice-e2e-split-already-billed");
+    const productId = await createPricedProduct(tenant, 10_000n);
+    const deviceId = await createDevice(tenant);
+    const { orderId, itemIds } = await createClosedOrderWithSeats(tenant, productId, [1, 2]);
+
+    await app.inject({
+      method: "POST",
+      url: `/orders/${orderId}/invoice`,
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+      payload: { deviceId, itemIds: [itemIds[0]] },
+    });
+
+    const again = await app.inject({
+      method: "POST",
+      url: `/orders/${orderId}/invoice`,
+      headers: { authorization: `Bearer ${tenant.accessToken}` },
+      payload: { deviceId, itemIds: [itemIds[0]] },
+    });
+    expect(again.statusCode).toBe(404);
+  });
+});

@@ -8,13 +8,26 @@ import { ComboSlotsController } from "./combo-slots.controller.js";
 import { ComboSlotsService } from "./combo-slots.service.js";
 import { CombosController } from "./combos.controller.js";
 import { CombosService } from "./combos.service.js";
+import { CashMovementReasonCodesController } from "./cash-movements.controller.js";
+import { CashMovementsService } from "./cash-movements.service.js";
+import { CreditCustomersController } from "./credit-customers.controller.js";
+import { ReceiptSettingsController } from "./receipt-settings.controller.js";
+import { ReceiptSettingsService } from "./receipt-settings.service.js";
+import { CreditCustomersService } from "./credit-customers.service.js";
+import { DiscountLimitsController, DiscountReasonCodesController } from "./discounts.controller.js";
+import { DiscountsService } from "./discounts.service.js";
+import { MANAGER_PIN_OPTIONS, ManagerPinService } from "./manager-pin.service.js";
 import { ModifierGroupsController } from "./modifier-groups.controller.js";
 import { ModifierGroupsService } from "./modifier-groups.service.js";
 import { ModifierOptionsController } from "./modifier-options.controller.js";
 import { ModifierOptionsService } from "./modifier-options.service.js";
+import { PaymentMethodSettingsController } from "./payment-method-settings.controller.js";
+import { PaymentMethodSettingsService } from "./payment-method-settings.service.js";
+import { PermissionsService } from "./permissions.service.js";
 import { PriceListItemsController } from "./price-list-items.controller.js";
 import { PriceListItemsService } from "./price-list-items.service.js";
 import { PriceListsController } from "./price-lists.controller.js";
+import { MenuSnapshotCacheService } from "./menu-snapshot-cache.service.js";
 import { PriceListsService } from "./price-lists.service.js";
 import { PriceResolutionService } from "./price-resolution.service.js";
 import { ProductVariantsController } from "./product-variants.controller.js";
@@ -29,8 +42,12 @@ import { TaxCalculationController } from "./tax-calculation.controller.js";
 import { TaxCalculationService } from "./tax-calculation.service.js";
 import { TaxRulesController } from "./tax-rules.controller.js";
 import { TaxRulesService } from "./tax-rules.service.js";
+import { RefundReasonCodesController } from "./refunds.controller.js";
+import { RefundsService } from "./refunds.service.js";
 import { TaxSettingsController } from "./tax-settings.controller.js";
 import { TaxSettingsService } from "./tax-settings.service.js";
+import { VoidReasonCodesController } from "./voids.controller.js";
+import { VoidsService } from "./voids.service.js";
 
 @Module({})
 export class CatalogModule {
@@ -59,6 +76,14 @@ export class CatalogModule {
         ServiceChargeSettingsController,
         TaxCalculationController,
         ProductStockStatusController,
+        PaymentMethodSettingsController,
+        DiscountReasonCodesController,
+        DiscountLimitsController,
+        VoidReasonCodesController,
+        RefundReasonCodesController,
+        CreditCustomersController,
+        CashMovementReasonCodesController,
+        ReceiptSettingsController,
       ],
       providers: [
         CategoriesService,
@@ -72,11 +97,22 @@ export class CatalogModule {
         PriceListsService,
         PriceListItemsService,
         PriceResolutionService,
+        MenuSnapshotCacheService,
         TaxRulesService,
         TaxSettingsService,
         ServiceChargeSettingsService,
         TaxCalculationService,
         ProductStockStatusService,
+        PaymentMethodSettingsService,
+        DiscountsService,
+        VoidsService,
+        RefundsService,
+        CreditCustomersService,
+        CashMovementsService,
+        ReceiptSettingsService,
+        ManagerPinService,
+        PermissionsService,
+        { provide: MANAGER_PIN_OPTIONS, useValue: {} },
         AuditLogService,
       ],
       exports: [
@@ -96,6 +132,13 @@ export class CatalogModule {
         ServiceChargeSettingsService,
         TaxCalculationService,
         ProductStockStatusService,
+        PaymentMethodSettingsService,
+        DiscountsService,
+        VoidsService,
+        RefundsService,
+        CreditCustomersService,
+        CashMovementsService,
+        ReceiptSettingsService,
       ],
     };
   }

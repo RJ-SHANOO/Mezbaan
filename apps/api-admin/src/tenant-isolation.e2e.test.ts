@@ -831,6 +831,112 @@ describe("tenant isolation — api-admin HTTP endpoints", () => {
     expect(bodyB.totalMinor).toBe("10000");
   });
 
+  it("every payment method is enabled by default; disabling one for a restaurant never affects another (P2-19)", async () => {
+    const tenantA = await signup("iso-pm-a");
+    const tenantB = await signup("iso-pm-b");
+
+    const listABefore = await app.inject({ method: "GET", url: "/payment-method-settings", headers: { authorization: `Bearer ${tenantA.accessToken}` } });
+    expect(listABefore.json<unknown[]>()).toEqual([]);
+
+    const disable = await app.inject({
+      method: "PUT",
+      url: "/payment-method-settings",
+      headers: { authorization: `Bearer ${tenantA.accessToken}` },
+      payload: { method: "wallet", enabled: false },
+    });
+    expect(disable.statusCode).toBe(200);
+    expect(disable.json<{ method: string; enabled: boolean }>()).toMatchObject({ method: "wallet", enabled: false });
+
+    const listA = await app.inject({ method: "GET", url: "/payment-method-settings", headers: { authorization: `Bearer ${tenantA.accessToken}` } });
+    expect(listA.json<{ method: string }[]>().map((s) => s.method)).toEqual(["wallet"]);
+
+    const listB = await app.inject({ method: "GET", url: "/payment-method-settings", headers: { authorization: `Bearer ${tenantB.accessToken}` } });
+    expect(listB.json<unknown[]>()).toEqual([]);
+  });
+
+  it("discount reason codes and limits are configurable and never leak across tenants (P2-22)", async () => {
+    const tenantA = await signup("iso-discount-a");
+    const tenantB = await signup("iso-discount-b");
+
+    await app.inject({
+      method: "PUT",
+      url: "/discount-reason-codes",
+      headers: { authorization: `Bearer ${tenantA.accessToken}` },
+      payload: { code: "loyalty", label: "Loyalty discount" },
+    });
+    await app.inject({
+      method: "PUT",
+      url: "/discount-limits",
+      headers: { authorization: `Bearer ${tenantA.accessToken}` },
+      payload: { maxUnapprovedPercentBasisPoints: 1000 },
+    });
+
+    const codesA = await app.inject({ method: "GET", url: "/discount-reason-codes", headers: { authorization: `Bearer ${tenantA.accessToken}` } });
+    expect(codesA.json<{ code: string }[]>().map((c) => c.code)).toEqual(["loyalty"]);
+    const limitsA = await app.inject({ method: "GET", url: "/discount-limits", headers: { authorization: `Bearer ${tenantA.accessToken}` } });
+    expect(limitsA.json<{ maxUnapprovedPercentBasisPoints: number | null }>().maxUnapprovedPercentBasisPoints).toBe(1000);
+
+    const codesB = await app.inject({ method: "GET", url: "/discount-reason-codes", headers: { authorization: `Bearer ${tenantB.accessToken}` } });
+    expect(codesB.json<unknown[]>()).toEqual([]);
+    const limitsB = await app.inject({ method: "GET", url: "/discount-limits", headers: { authorization: `Bearer ${tenantB.accessToken}` } });
+    expect(limitsB.json<{ maxUnapprovedPercentBasisPoints: number | null }>().maxUnapprovedPercentBasisPoints).toBeNull();
+  });
+
+  it("void reason codes are configurable and never leak across tenants (P2-23)", async () => {
+    const tenantA = await signup("iso-void-a");
+    const tenantB = await signup("iso-void-b");
+
+    await app.inject({
+      method: "PUT",
+      url: "/void-reason-codes",
+      headers: { authorization: `Bearer ${tenantA.accessToken}` },
+      payload: { code: "mistake", label: "Order entry mistake" },
+    });
+
+    const codesA = await app.inject({ method: "GET", url: "/void-reason-codes", headers: { authorization: `Bearer ${tenantA.accessToken}` } });
+    expect(codesA.json<{ code: string }[]>().map((c) => c.code)).toEqual(["mistake"]);
+
+    const codesB = await app.inject({ method: "GET", url: "/void-reason-codes", headers: { authorization: `Bearer ${tenantB.accessToken}` } });
+    expect(codesB.json<unknown[]>()).toEqual([]);
+  });
+
+  it("refund reason codes are configurable and never leak across tenants (P2-24)", async () => {
+    const tenantA = await signup("iso-refund-a");
+    const tenantB = await signup("iso-refund-b");
+
+    await app.inject({
+      method: "PUT",
+      url: "/refund-reason-codes",
+      headers: { authorization: `Bearer ${tenantA.accessToken}` },
+      payload: { code: "mistake", label: "Order entry mistake" },
+    });
+
+    const codesA = await app.inject({ method: "GET", url: "/refund-reason-codes", headers: { authorization: `Bearer ${tenantA.accessToken}` } });
+    expect(codesA.json<{ code: string }[]>().map((c) => c.code)).toEqual(["mistake"]);
+
+    const codesB = await app.inject({ method: "GET", url: "/refund-reason-codes", headers: { authorization: `Bearer ${tenantB.accessToken}` } });
+    expect(codesB.json<unknown[]>()).toEqual([]);
+  });
+
+  it("credit customers are created per-tenant and never leak across tenants (P2-25)", async () => {
+    const tenantA = await signup("iso-credit-a");
+    const tenantB = await signup("iso-credit-b");
+
+    const create = await app.inject({
+      method: "POST",
+      url: "/credit-customers",
+      headers: { authorization: `Bearer ${tenantA.accessToken}` },
+      payload: { name: "Acme Corp", creditLimitMinor: "10000", currency: "PKR" },
+    });
+    expect(create.statusCode).toBe(201);
+
+    const listA = await app.inject({ method: "GET", url: "/credit-customers", headers: { authorization: `Bearer ${tenantA.accessToken}` } });
+    expect(listA.json<{ name: string }[]>().map((c) => c.name)).toEqual(["Acme Corp"]);
+
+    const listB = await app.inject({ method: "GET", url: "/credit-customers", headers: { authorization: `Bearer ${tenantB.accessToken}` } });
+    expect(listB.json<unknown[]>()).toEqual([]);
+  });
+
   it("a restaurant can 86 a product at its branch, see it listed, and clear it (positive control)", async () => {
     const tenant = await signup("iso-stock-ok");
 

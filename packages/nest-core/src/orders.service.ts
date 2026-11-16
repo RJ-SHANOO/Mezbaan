@@ -1,8 +1,10 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { schema, withTenant, type Database } from "@mezbaan/db";
 import {
   add,
+  applyFixedDiscount,
+  applyPercentageDiscount,
   assertCanTransitionOrderStatus,
   IllegalOrderStatusTransitionError,
   money,
@@ -12,6 +14,7 @@ import {
   type OrderStatus,
 } from "@mezbaan/domain";
 import { AuditLogService } from "./audit-log.service.js";
+import { BusinessDaysService } from "./business-days.service.js";
 import { DATABASE } from "./db.module.js";
 import { OrderItemsService, type OrderItemRecord } from "./order-items.service.js";
 import { isUniqueViolation } from "./pg-error.js";
@@ -37,6 +40,11 @@ export interface OrderRecord {
   status: OrderStatus;
   currency: string;
   openedByUserId: string;
+  /** P2-22: at most one of these two is set — see DiscountsService.applyBillDiscount. */
+  discountPercentBasisPoints: number | null;
+  discountAmountMinor: bigint | null;
+  discountReasonCode: string | null;
+  discountApprovedByUserId: string | null;
   createdAt: Date;
   updatedAt: Date;
   closedAt: Date | null;
@@ -49,6 +57,8 @@ export interface CreateOrderParams {
   orderType: OrderType;
   currency: string;
   tableId?: string;
+  /** P2-30: checks this day's business-day status instead of "today" — for a future offline-sync replay of an order that actually happened on an already-closed day. */
+  asOfBusinessDate?: string;
 }
 
 export interface ListOrdersParams {
@@ -135,6 +145,7 @@ export class OrdersService {
     @Inject(DATABASE) private readonly db: Database,
     private readonly auditLogService: AuditLogService,
     private readonly orderItemsService: OrderItemsService,
+    @Optional() private readonly businessDaysService?: BusinessDaysService,
   ) {}
 
   async list(params: ListOrdersParams): Promise<OrderRecord[]> {
@@ -155,6 +166,14 @@ export class OrdersService {
   async create(params: CreateOrderParams): Promise<OrderRecord> {
     if ((params.orderType === "dine_in") !== (params.tableId !== undefined)) {
       throw new BadRequestException(EXACTLY_DINE_IN_HAS_TABLE);
+    }
+
+    // P2-30: a separate precondition check, not nested inside the insert's own
+    // transaction below — asOfBusinessDate lets a future offline-sync replay
+    // check the day the sale actually happened on instead of "today," so a
+    // closed day never discards an already-completed offline sale.
+    if (this.businessDaysService) {
+      await this.businessDaysService.requireOpenForSale(params.restaurantId, params.branchId, params.asOfBusinessDate);
     }
 
     return withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
@@ -530,16 +549,32 @@ export class OrdersService {
   }
 }
 
-/** Shared with InvoicesService (P2-18) — the same pure domain-math subtotal both OrdersService.getTableTab and invoice generation need. */
+/** Shared with InvoicesService (P2-18) — the same pure domain-math subtotal both
+ * OrdersService.getTableTab and invoice generation need. P2-22: each line's own
+ * discount (at most one of percent/amount) is subtracted here, after modifiers —
+ * a discounted line is still what's summed into the order total, not something
+ * invoice generation has to know about separately. */
 export function computeOrderTotal(items: OrderItemRecord[], currency: string): Money {
-  if (items.length === 0) return money(0n, currency);
-  const lineTotals = items.map((item) => {
+  // P2-23: a voided item contributes nothing — it stays in the array (and in
+  // the database) for reporting, it just never counts toward what's owed.
+  // sum() rejects an empty array, so "every item voided" has to short-circuit
+  // the same way "no items at all" already does.
+  const billable = items.filter((item) => item.voidedAt === null);
+  if (billable.length === 0) return money(0n, currency);
+  const lineTotals = billable.map((item) => {
     const base = multiply(money(item.unitPriceMinor, item.currency), item.quantity);
     const modifiersTotal =
       item.modifiers.length > 0
         ? sum(item.modifiers.map((m) => multiply(money(m.unitPriceMinor, m.currency), m.quantity)))
         : money(0n, item.currency);
-    return add(base, modifiersTotal);
+    const lineTotal = add(base, modifiersTotal);
+    if (item.discountPercentBasisPoints !== null) {
+      return applyPercentageDiscount(lineTotal, item.discountPercentBasisPoints).afterDiscount;
+    }
+    if (item.discountAmountMinor !== null) {
+      return applyFixedDiscount(lineTotal, money(item.discountAmountMinor, lineTotal.currency)).afterDiscount;
+    }
+    return lineTotal;
   });
   return sum(lineTotals);
 }

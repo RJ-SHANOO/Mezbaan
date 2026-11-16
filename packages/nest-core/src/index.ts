@@ -236,6 +236,7 @@ export {
   type MergeTablesResult,
   type SplitTableParams,
   type SplitTableResult,
+  computeOrderTotal,
 } from "./orders.service.js";
 export { OrdersController, TableTabController } from "./orders.controller.js";
 export {
@@ -268,6 +269,103 @@ export {
   InvoicesService,
   type InvoiceRecord,
   type GenerateInvoiceParams,
+  type SplitBySeatParams,
+  type SplitByItemsParams,
 } from "./invoices.service.js";
-export { InvoicesController } from "./invoices.controller.js";
+export { InvoicesController, InvoiceListController } from "./invoices.controller.js";
+export {
+  PaymentMethodSettingsService,
+  type PaymentMethod,
+  type PaymentMethodSettingRecord,
+  type SetPaymentMethodSettingParams,
+  ALL_PAYMENT_METHODS,
+} from "./payment-method-settings.service.js";
+export { PaymentMethodSettingsController } from "./payment-method-settings.controller.js";
+export {
+  PaymentsService,
+  type PaymentRecord,
+  type RecordPaymentParams,
+  type InvoiceBalance,
+} from "./payments.service.js";
+export { PaymentsController, InvoiceBalanceController, InvoiceSplitController } from "./payments.controller.js";
+export {
+  DiscountsService,
+  type DiscountReasonCodeRecord,
+  type SetDiscountReasonCodeParams,
+  type DiscountLimitsRecord,
+  type SetDiscountLimitsParams,
+  type ApplyItemDiscountParams,
+  type ApplyBillDiscountParams,
+  type DiscountOutcome as DiscountOutcomeRecord,
+} from "./discounts.service.js";
+export {
+  DiscountReasonCodesController,
+  DiscountLimitsController,
+  OrderItemDiscountController,
+  OrderDiscountController,
+} from "./discounts.controller.js";
+export {
+  VoidsService,
+  type VoidReasonCodeRecord,
+  type SetVoidReasonCodeParams,
+  type VoidItemParams,
+  type VoidOutcome as VoidOutcomeRecord,
+} from "./voids.service.js";
+export { VoidReasonCodesController, OrderItemVoidController } from "./voids.controller.js";
+export {
+  RefundsService,
+  type RefundReasonCodeRecord,
+  type SetRefundReasonCodeParams,
+  type RefundBalance as RefundBalanceRecord,
+  type IssueRefundParams,
+  type RefundRecord,
+} from "./refunds.service.js";
+export { RefundReasonCodesController, InvoiceRefundsController, InvoiceRefundBalanceController } from "./refunds.controller.js";
+export {
+  CreditCustomersService,
+  type CreditCustomerRecord,
+  type CreateCreditCustomerParams,
+  type UpdateCreditCustomerParams,
+  type CreditLedgerEntryRecord,
+  type CreditBalance as CreditBalanceRecord,
+  type ChargeCreditParams,
+  type RecordRepaymentParams,
+} from "./credit-customers.service.js";
+export { CreditCustomersController } from "./credit-customers.controller.js";
+export { CreditCustomerLookupController, CreditAccountController } from "./credit-account.controller.js";
+export { ShiftsService, type DenominationCount, type ShiftRecord, type OpenShiftParams, type CloseShiftParams } from "./shifts.service.js";
+export { ShiftsController } from "./shifts.controller.js";
+export {
+  CashMovementsService,
+  type CashMovementDirection,
+  type CashDrawerOpenTrigger,
+  type CashMovementReasonCodeRecord,
+  type SetCashMovementReasonCodeParams,
+  type CashMovementRecord,
+  type CashDrawerOpenEventRecord,
+  type RecordCashMovementParams,
+  type LogDrawerOpenParams,
+} from "./cash-movements.service.js";
+export { CashMovementReasonCodesController } from "./cash-movements.controller.js";
+export { CashDrawerController } from "./cash-drawer.controller.js";
+export { ShiftReportsService, type SalesSummary, type XReport as XReportRecord, type ZReport as ZReportRecord } from "./shift-reports.service.js";
+export { ShiftReportsController } from "./shift-reports.controller.js";
+export { BusinessDaysService, type BusinessDayStatus, type BusinessDayRecord, type CloseBusinessDayParams } from "./business-days.service.js";
+export { BusinessDaysController } from "./business-days.controller.js";
+export { ReceiptSettingsService, type ReceiptSettingsRecord, type SetReceiptSettingsParams } from "./receipt-settings.service.js";
+export { ReceiptSettingsController, ReceiptSettingsLookupController } from "./receipt-settings.controller.js";
+export {
+  SalesReportsService,
+  type DailySalesSummary as DailySalesSummaryRecord,
+  type PaymentBreakdown as PaymentBreakdownRecord,
+  type VoidReportEntry as VoidReportEntryRecord,
+  type VoidReport as VoidReportRecord,
+  type DiscountReportEntry as DiscountReportEntryRecord,
+  type DiscountReport as DiscountReportRecord,
+  type RefundReportEntry as RefundReportEntryRecord,
+  type RefundReport as RefundReportRecord,
+} from "./sales-reports.service.js";
+export { SalesReportsController } from "./sales-reports.controller.js";
+export { RedisModule, REDIS, type RedisModuleOptions } from "./redis.module.js";
+export { MenuSnapshotCacheService } from "./menu-snapshot-cache.service.js";
 export { OrdersModule } from "./orders.module.js";

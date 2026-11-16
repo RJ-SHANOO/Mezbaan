@@ -3,6 +3,9 @@ import { CurrencyCodeSchema } from "./currency.js";
 import { OrderItemSchema } from "./order-items.js";
 import { OrderTypeSchema } from "./price-lists.js";
 
+const MINOR_UNITS_PATTERN = /^-?\d+$/;
+const MinorUnitsSchema = z.string().regex(MINOR_UNITS_PATTERN, "must be an integer string");
+
 export const OrderStatusSchema = z.enum(["open", "held", "closed", "cancelled"]);
 export type OrderStatus = z.infer<typeof OrderStatusSchema>;
 
@@ -62,6 +65,10 @@ export const OrderSchema = z.object({
   status: OrderStatusSchema,
   currency: CurrencyCodeSchema,
   openedByUserId: z.string().uuid(),
+  discountPercentBasisPoints: z.number().int().nullable(),
+  discountAmountMinor: MinorUnitsSchema.nullable(),
+  discountReasonCode: z.string().nullable(),
+  discountApprovedByUserId: z.string().uuid().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
   closedAt: z.string().nullable(),

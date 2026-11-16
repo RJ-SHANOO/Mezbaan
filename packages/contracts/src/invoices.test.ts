@@ -1,14 +1,36 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { GenerateInvoiceSchema, InvoiceSchema } from "./invoices.js";
-
-
+import { GenerateInvoiceSchema, InvoiceSchema, SplitByItemsSchema, SplitBySeatSchema } from "./invoices.js";
 
 describe("GenerateInvoiceSchema", () => {
   it("requires a deviceId", () => {
     const deviceId = randomUUID();
     expect(GenerateInvoiceSchema.parse({ deviceId })).toEqual({ deviceId });
     expect(() => GenerateInvoiceSchema.parse({})).toThrow();
+  });
+
+  it("accepts an optional, non-empty itemIds list", () => {
+    const deviceId = randomUUID();
+    const itemIds = [randomUUID()];
+    expect(GenerateInvoiceSchema.parse({ deviceId, itemIds })).toEqual({ deviceId, itemIds });
+    expect(() => GenerateInvoiceSchema.parse({ deviceId, itemIds: [] })).toThrow();
+  });
+});
+
+describe("SplitByItemsSchema", () => {
+  it("requires at least one non-empty group", () => {
+    const deviceId = randomUUID();
+    const groups = [[randomUUID(), randomUUID()], [randomUUID()]];
+    expect(SplitByItemsSchema.parse({ deviceId, groups })).toEqual({ deviceId, groups });
+    expect(() => SplitByItemsSchema.parse({ deviceId, groups: [] })).toThrow();
+    expect(() => SplitByItemsSchema.parse({ deviceId, groups: [[]] })).toThrow();
+  });
+});
+
+describe("SplitBySeatSchema", () => {
+  it("requires only a deviceId", () => {
+    const deviceId = randomUUID();
+    expect(SplitBySeatSchema.parse({ deviceId })).toEqual({ deviceId });
   });
 });
 

@@ -50,7 +50,7 @@ beforeAll(() => {
   const taxSettingsService = new TaxSettingsService(db, auditLogService);
   const serviceChargeSettingsService = new ServiceChargeSettingsService(db, auditLogService);
   const taxCalculationService = new TaxCalculationService(taxRulesService, taxSettingsService, serviceChargeSettingsService);
-  service = new InvoicesService(db, auditLogService, orderItemsService, taxCalculationService);
+  service = new InvoicesService(db, auditLogService, taxCalculationService);
 });
 
 afterAll(async () => {
@@ -248,5 +248,131 @@ describe("InvoicesService.getByOrderId", () => {
     const invoice = await service.generate({ restaurantId: tenant.restaurantId, orderId, deviceId: device.id, actorUserId: tenant.ownerUserId });
 
     expect(await service.getByOrderId({ restaurantId: tenant.restaurantId, orderId })).toEqual(invoice);
+  });
+});
+
+/** P2-21: a closed dine-in-shaped (but takeaway, no table needed) order with
+ * one item per given seat number — the common starting point for split tests. */
+async function createClosedOrderWithSeats(tenant: { restaurantId: string; ownerUserId: string }, branchId: string, seats: Array<number | undefined>): Promise<{ orderId: string; itemIds: string[] }> {
+  const productId = await createPricedProduct(tenant.restaurantId, tenant.ownerUserId, 10_000n);
+  const order = await ordersService.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, branchId, orderType: "takeaway", currency: "PKR" });
+  const itemIds: string[] = [];
+  for (const seatNumber of seats) {
+    const item = await orderItemsService.addItem({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, orderId: order.id, productId, seatNumber });
+    itemIds.push(item.id);
+  }
+  await ordersService.close({ restaurantId: tenant.restaurantId, orderId: order.id, actorUserId: tenant.ownerUserId });
+  return { orderId: order.id, itemIds };
+}
+
+describe("InvoicesService.generate — P2-21 item-scoped billing", () => {
+  it("bills only the given itemIds, leaving the rest of the order unbilled", async () => {
+    const tenant = await createRestaurant("invoice-item-scoped");
+    const branchId = await createBranch(tenant.restaurantId);
+    const device = await deviceService.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, branchId, label: "Till 1", deviceType: "pos_terminal" });
+    const { orderId, itemIds } = await createClosedOrderWithSeats(tenant, branchId, [1, 2]);
+
+    const invoice = await service.generate({ restaurantId: tenant.restaurantId, orderId, deviceId: device.id, actorUserId: tenant.ownerUserId, itemIds: [itemIds[0]!] });
+    expect(invoice.subtotalMinor).toBe(10_000n);
+
+    // The second item is still unbilled, so a fresh generate() over "everything unbilled" succeeds.
+    const second = await service.generate({ restaurantId: tenant.restaurantId, orderId, deviceId: device.id, actorUserId: tenant.ownerUserId });
+    expect(second.subtotalMinor).toBe(10_000n);
+    expect(second.id).not.toBe(invoice.id);
+  });
+
+  it("rejects item ids that don't belong to the order, or are already invoiced", async () => {
+    const tenant = await createRestaurant("invoice-item-scoped-rejects");
+    const branchId = await createBranch(tenant.restaurantId);
+    const device = await deviceService.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, branchId, label: "Till 1", deviceType: "pos_terminal" });
+    const { orderId, itemIds } = await createClosedOrderWithSeats(tenant, branchId, [1, 2]);
+
+    await expect(
+      service.generate({ restaurantId: tenant.restaurantId, orderId, deviceId: device.id, actorUserId: tenant.ownerUserId, itemIds: [randomUUID()] }),
+    ).rejects.toThrow(NotFoundException);
+
+    await service.generate({ restaurantId: tenant.restaurantId, orderId, deviceId: device.id, actorUserId: tenant.ownerUserId, itemIds: [itemIds[0]!] });
+    await expect(
+      service.generate({ restaurantId: tenant.restaurantId, orderId, deviceId: device.id, actorUserId: tenant.ownerUserId, itemIds: [itemIds[0]!] }),
+    ).rejects.toThrow(NotFoundException);
+  });
+});
+
+describe("InvoicesService.splitBySeat", () => {
+  it("produces one invoice per distinct seat", async () => {
+    const tenant = await createRestaurant("invoice-split-seat");
+    const branchId = await createBranch(tenant.restaurantId);
+    const device = await deviceService.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, branchId, label: "Till 1", deviceType: "pos_terminal" });
+    const { orderId } = await createClosedOrderWithSeats(tenant, branchId, [1, 1, 2]);
+
+    const invoices = await service.splitBySeat({ restaurantId: tenant.restaurantId, orderId, deviceId: device.id, actorUserId: tenant.ownerUserId });
+
+    expect(invoices).toHaveLength(2);
+    expect(invoices.map((inv) => inv.subtotalMinor).sort()).toEqual([10_000n, 20_000n]);
+  });
+
+  it("groups seat-less items into their own shared invoice", async () => {
+    const tenant = await createRestaurant("invoice-split-seat-unassigned");
+    const branchId = await createBranch(tenant.restaurantId);
+    const device = await deviceService.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, branchId, label: "Till 1", deviceType: "pos_terminal" });
+    const { orderId } = await createClosedOrderWithSeats(tenant, branchId, [1, undefined]);
+
+    const invoices = await service.splitBySeat({ restaurantId: tenant.restaurantId, orderId, deviceId: device.id, actorUserId: tenant.ownerUserId });
+    expect(invoices).toHaveLength(2);
+  });
+
+  it("rejects splitting an order with nothing left unbilled", async () => {
+    const tenant = await createRestaurant("invoice-split-seat-none-left");
+    const branchId = await createBranch(tenant.restaurantId);
+    const device = await deviceService.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, branchId, label: "Till 1", deviceType: "pos_terminal" });
+    const orderId = await createClosedOrderWithItem(tenant, branchId);
+    await service.generate({ restaurantId: tenant.restaurantId, orderId, deviceId: device.id, actorUserId: tenant.ownerUserId });
+
+    await expect(service.splitBySeat({ restaurantId: tenant.restaurantId, orderId, deviceId: device.id, actorUserId: tenant.ownerUserId })).rejects.toThrow(BadRequestException);
+  });
+});
+
+describe("InvoicesService.splitByItems", () => {
+  it("produces one invoice per caller-chosen group", async () => {
+    const tenant = await createRestaurant("invoice-split-items");
+    const branchId = await createBranch(tenant.restaurantId);
+    const device = await deviceService.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, branchId, label: "Till 1", deviceType: "pos_terminal" });
+    const { orderId, itemIds } = await createClosedOrderWithSeats(tenant, branchId, [1, 2, 3]);
+
+    const invoices = await service.splitByItems({
+      restaurantId: tenant.restaurantId,
+      orderId,
+      deviceId: device.id,
+      actorUserId: tenant.ownerUserId,
+      groups: [[itemIds[0]!, itemIds[1]!], [itemIds[2]!]],
+    });
+
+    expect(invoices).toHaveLength(2);
+    expect(invoices.map((inv) => inv.subtotalMinor).sort()).toEqual([10_000n, 20_000n]);
+  });
+
+  it("rejects an empty group", async () => {
+    const tenant = await createRestaurant("invoice-split-items-empty-group");
+    const branchId = await createBranch(tenant.restaurantId);
+    const device = await deviceService.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, branchId, label: "Till 1", deviceType: "pos_terminal" });
+    const { orderId } = await createClosedOrderWithSeats(tenant, branchId, [1]);
+
+    await expect(
+      service.splitByItems({ restaurantId: tenant.restaurantId, orderId, deviceId: device.id, actorUserId: tenant.ownerUserId, groups: [[]] }),
+    ).rejects.toThrow(BadRequestException);
+  });
+});
+
+describe("InvoicesService.listByOrderId", () => {
+  it("returns every invoice generated for an order, not just the first", async () => {
+    const tenant = await createRestaurant("invoice-list-by-order");
+    const branchId = await createBranch(tenant.restaurantId);
+    const device = await deviceService.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, branchId, label: "Till 1", deviceType: "pos_terminal" });
+    const { orderId } = await createClosedOrderWithSeats(tenant, branchId, [1, 2]);
+
+    await service.splitBySeat({ restaurantId: tenant.restaurantId, orderId, deviceId: device.id, actorUserId: tenant.ownerUserId });
+
+    const all = await service.listByOrderId({ restaurantId: tenant.restaurantId, orderId });
+    expect(all).toHaveLength(2);
   });
 });
