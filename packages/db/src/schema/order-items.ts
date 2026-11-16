@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { bigint, check, integer, pgPolicy, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { invoices } from "./invoices.js";
 import { orders } from "./orders.js";
 import { priceLists } from "./price-lists.js";
 import { productVariants } from "./product-variants.js";
@@ -58,6 +59,36 @@ export const orderItems = pgTable(
     // (P2-23's job) can tell whether an item ever reached the kitchen at all.
     firedAt: timestamp("fired_at", { withTimezone: true }),
     firedByUserId: uuid("fired_by_user_id").references(() => users.id),
+    // P2-21: set once this item has been billed on a split invoice — null
+    // means "not yet invoiced." A closed order's items are either all billed
+    // on one invoice (the P2-18 default, no splitting) or spread across
+    // several (P2-21's "split by item"/"split by seat") — either way, an
+    // item can be billed on at most one invoice, which is the real
+    // invariant P2-18's old "one invoice per order" UNIQUE index used to
+    // stand in for before splitting existed.
+    invoiceId: uuid("invoice_id").references(() => invoices.id),
+    // P2-22: at most one of these two is ever set — never both, and neither
+    // mutates unitPriceMinor itself (rule 6: a discount is a recorded
+    // reduction, not a silently-changed price). discountApprovedByUserId is
+    // null when the discount was within the cashier's own pos.sell authority
+    // (DiscountsService.applyItemDiscount) — set only when it needed a
+    // manager's PIN (ManagerPinService, P1-13's first real consumer).
+    discountPercentBasisPoints: integer("discount_percent_basis_points"),
+    discountAmountMinor: bigint("discount_amount_minor", { mode: "bigint" }),
+    discountReasonCode: text("discount_reason_code"),
+    discountApprovedByUserId: uuid("discount_approved_by_user_id").references(() => users.id),
+    // P2-23: a void keeps the row (rule 6: "visible in reports" — a deleted row
+    // isn't) rather than deleting it like OrderItemsService.removeItem does.
+    // voidedAt null means "not voided." Approval is required only when
+    // firedAt was already set at the moment of voiding — voiding something
+    // the kitchen never started on needs no manager sign-off, voiding
+    // something already fired does (VoidsService checks firedAt, not a
+    // configurable limit like P2-22's discounts — "before or after firing"
+    // is itself the whole rule here).
+    voidedAt: timestamp("voided_at", { withTimezone: true }),
+    voidedByUserId: uuid("voided_by_user_id").references(() => users.id),
+    voidReasonCode: text("void_reason_code"),
+    voidApprovedByUserId: uuid("void_approved_by_user_id").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -65,6 +96,10 @@ export const orderItems = pgTable(
     check(
       "order_items_exactly_one_product_or_variant",
       sql`(${table.productId} IS NOT NULL AND ${table.variantId} IS NULL) OR (${table.productId} IS NULL AND ${table.variantId} IS NOT NULL)`,
+    ),
+    check(
+      "order_items_at_most_one_discount_type",
+      sql`NOT (${table.discountPercentBasisPoints} IS NOT NULL AND ${table.discountAmountMinor} IS NOT NULL)`,
     ),
     pgPolicy("order_items_tenant_isolation", {
       for: "all",

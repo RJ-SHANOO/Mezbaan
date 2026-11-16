@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, pgPolicy, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { bigint, check, integer, pgPolicy, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { branches } from "./branches.js";
 import { diningTables } from "./dining-tables.js";
 import { restaurants } from "./restaurants.js";
@@ -43,6 +43,16 @@ export const orders = pgTable(
     openedByUserId: uuid("opened_by_user_id")
       .notNull()
       .references(() => users.id),
+    // P2-22: a bill-level discount — same shape and reasoning as order_items'
+    // own discount columns (at most one of percent/amount, never mutates any
+    // priced field directly). Only meaningful for a whole-order invoice
+    // (InvoicesService.generate with no itemIds); a split-by-item/seat
+    // invoice has no well-defined "whole bill" to discount, so it's ignored
+    // there — item-level discounts are the right tool for a split bill.
+    discountPercentBasisPoints: integer("discount_percent_basis_points"),
+    discountAmountMinor: bigint("discount_amount_minor", { mode: "bigint" }),
+    discountReasonCode: text("discount_reason_code"),
+    discountApprovedByUserId: uuid("discount_approved_by_user_id").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     closedAt: timestamp("closed_at", { withTimezone: true }),
@@ -51,6 +61,10 @@ export const orders = pgTable(
     check(
       "orders_table_id_matches_order_type",
       sql`(${table.orderType} = 'dine_in' AND ${table.tableId} IS NOT NULL) OR (${table.orderType} <> 'dine_in' AND ${table.tableId} IS NULL)`,
+    ),
+    check(
+      "orders_at_most_one_discount_type",
+      sql`NOT (${table.discountPercentBasisPoints} IS NOT NULL AND ${table.discountAmountMinor} IS NOT NULL)`,
     ),
     // P2-16: the real, DB-enforced guard behind "a table has at most one
     // occupying order" — OrdersService's own pre-check (requireFreeTableInBranch)

@@ -9,11 +9,16 @@ import { users } from "./users.js";
 /**
  * P2-18: the first real financial-ledger entity (rule 4: append-only, same
  * enforcement as audit_logs/order_status_history — app-role.ts REVOKEs
- * UPDATE/DELETE from mezbaan_app). One row per order, generated once the
- * order is closed (OrdersService.close, P2-13) — InvoicesService.generate
- * rejects a second invoice for the same orderId outright rather than
- * "correcting" one in place; a real correction is a future compensating
- * document (refund/credit-note territory, P2-24), not an update here.
+ * UPDATE/DELETE from mezbaan_app). Generated once the order is closed
+ * (OrdersService.close, P2-13) — InvoicesService.generate never "corrects"
+ * one in place; a real correction is a future compensating document
+ * (refund/credit-note territory, P2-24), not an update here.
+ *
+ * P2-21 ("split bills by item/seat") is why this is no longer strictly one
+ * row per order: a single closed order can be billed across several
+ * invoices, each covering a disjoint subset of its items. The real
+ * invariant is on order_items.invoiceId instead — every item is billed on
+ * at most one invoice, checked there, not here.
  *
  * `documentNumber` follows rule 10's "B{branch_number}-T{terminal_number}-
  * {sequence:06}" format, but the trailing sequence here comes from a new
@@ -65,8 +70,6 @@ export const invoices = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    // One invoice per order (append-only — no regenerating a second one over it).
-    uniqueIndex("invoices_order_id_idx").on(table.orderId),
     // Defense in depth, same reasoning as every other generated-number uniqueness
     // guarantee in this codebase: the branch/terminal/sequence combination should
     // already be unique by construction, but a real DB constraint is the actual

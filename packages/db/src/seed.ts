@@ -14,6 +14,7 @@ export const ROLE_SEED = [
 export const PERMISSION_SEED = [
   { key: "pos.sell", description: "Ring up sales at the POS" },
   { key: "pos.void.approve", description: "Approve a void after kitchen firing" },
+  { key: "pos.discount.approve", description: "Approve a discount above the restaurant's own-authority limit" },
   { key: "inventory.adjust", description: "Record a stock adjustment" },
   { key: "billing.refund.approve", description: "Approve a refund" },
   { key: "reports.view", description: "View sales and inventory reports" },
@@ -21,6 +22,8 @@ export const PERMISSION_SEED = [
   { key: "menu.manage", description: "Manage categories, products and branch availability" },
   { key: "pos.mark_out_of_stock", description: "Mark or clear a product or variant as out of stock (86) at a branch" },
   { key: "tables.manage", description: "Manage floors, tables and table QR codes" },
+  { key: "credit.manage", description: "Create credit customers and set their credit limits" },
+  { key: "business_day.manage", description: "Close a branch's business day" },
 ] as const;
 
 // Which seeded permissions each role gets by default. Kitchen staff gets none of these —
@@ -35,7 +38,7 @@ export const PERMISSION_SEED = [
 export const ROLE_PERMISSIONS: Readonly<Record<string, readonly string[]>> = {
   super_admin: PERMISSION_SEED.map((p) => p.key),
   owner: PERMISSION_SEED.map((p) => p.key),
-  branch_manager: ["pos.sell", "pos.void.approve", "inventory.adjust", "reports.view", "menu.manage", "pos.mark_out_of_stock", "tables.manage"],
+  branch_manager: ["pos.sell", "pos.void.approve", "pos.discount.approve", "billing.refund.approve", "inventory.adjust", "reports.view", "menu.manage", "pos.mark_out_of_stock", "tables.manage", "credit.manage", "business_day.manage"],
   cashier: ["pos.sell", "pos.mark_out_of_stock"],
   kitchen_staff: [],
 };

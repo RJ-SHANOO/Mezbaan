@@ -1,0 +1,1 @@
+ALTER TABLE "payments" ADD COLUMN "change_minor" bigint DEFAULT 0 NOT NULL;

@@ -24,6 +24,11 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE O
 REVOKE UPDATE, DELETE ON audit_logs FROM mezbaan_app;
 REVOKE UPDATE, DELETE ON order_status_history FROM mezbaan_app;
 REVOKE UPDATE, DELETE ON invoices FROM mezbaan_app;
+REVOKE UPDATE, DELETE ON payments FROM mezbaan_app;
+REVOKE UPDATE, DELETE ON refunds FROM mezbaan_app;
+REVOKE UPDATE, DELETE ON credit_ledger_entries FROM mezbaan_app;
+REVOKE UPDATE, DELETE ON cash_movements FROM mezbaan_app;
+REVOKE UPDATE, DELETE ON cash_drawer_open_events FROM mezbaan_app;
 
 -- Commission rate locked at registration (rule 7): revoke the blanket UPDATE the
 -- broad grant above just gave and re-grant it only for the columns allowed to change

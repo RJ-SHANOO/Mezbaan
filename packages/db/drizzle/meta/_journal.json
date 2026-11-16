@@ -190,6 +190,83 @@
       "when": 1794575739639,
       "tag": "0026_majestic_thanos",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1794676859593,
+      "tag": "0027_oval_warbound",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1794680222446,
+      "tag": "0028_brave_gorilla_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1794680992176,
+      "tag": "0029_dashing_nighthawk",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1794682817299,
+      "tag": "0030_magenta_blonde_phantom",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1794729143905,
+      "tag": "0031_remarkable_cannonball",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1794730327943,
+      "tag": "0032_plain_puck",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1794730932362,
+      "tag": "0033_tense_madripoor",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1794731808058,
+      "tag": "0034_fair_supernaut",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1794732625800,
+      "tag": "0035_confused_mantis",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1794733388975,
+      "tag": "0036_long_purifiers",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1794735574792,
+      "tag": "0037_short_george_stacy",
+      "breakpoints": true
     }
   ]
 }
