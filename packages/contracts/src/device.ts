@@ -39,4 +39,15 @@ export const DeviceTokenResponseSchema = z.object({
   deviceToken: z.string(),
   device: DeviceSchema,
 });
+
+/** P2-36: a hash, never the raw token (same "never store/transmit the raw
+ * secret" convention as devices.tokenHash itself) — lets any paired device
+ * in the branch (fetched once while online) verify a peer's presented raw
+ * token offline, by hashing it locally and checking membership, the same
+ * way manager_pin_offline.rs already verifies a PIN against a synced hash. */
+export const DeviceRosterEntrySchema = z.object({
+  deviceId: z.string().uuid(),
+  tokenHash: z.string(),
+});
+export type DeviceRosterEntry = z.infer<typeof DeviceRosterEntrySchema>;
 export type DeviceTokenResponse = z.infer<typeof DeviceTokenResponseSchema>;

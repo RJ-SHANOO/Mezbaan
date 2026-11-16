@@ -236,3 +236,46 @@ describe("tenant isolation", () => {
     ).rejects.toThrow();
   });
 });
+
+describe("listRosterForBranch (P2-36)", () => {
+  it("lists only active devices with a token hash, scoped to the branch", async () => {
+    const tenant = await createTenant("roster-ok");
+    const hub = await createDevice(tenant, "Hub Terminal");
+    const terminal = await createDevice(tenant, "POS Terminal");
+    const unpaired = await createDevice(tenant, "Unpaired Kitchen Display"); // never redeemed a pairing code — no tokenHash yet
+
+    for (const device of [hub, terminal]) {
+      const { pairingCode } = await service.generatePairingCode({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, deviceId: device.id });
+      await service.redeemPairingCode(pairingCode);
+    }
+
+    const roster = await service.listRosterForBranch(tenant.restaurantId, tenant.branchId);
+    const rosterIds = roster.map((entry) => entry.deviceId);
+    expect(rosterIds).toContain(hub.id);
+    expect(rosterIds).toContain(terminal.id);
+    expect(rosterIds).not.toContain(unpaired.id);
+    expect(roster.every((entry) => entry.tokenHash.length > 0)).toBe(true);
+  });
+
+  it("excludes a revoked device", async () => {
+    const tenant = await createTenant("roster-excludes-revoked");
+    const device = await createDevice(tenant, "To Be Revoked");
+    const { pairingCode } = await service.generatePairingCode({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, deviceId: device.id });
+    await service.redeemPairingCode(pairingCode);
+    await service.revoke({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, deviceId: device.id });
+
+    const roster = await service.listRosterForBranch(tenant.restaurantId, tenant.branchId);
+    expect(roster.map((entry) => entry.deviceId)).not.toContain(device.id);
+  });
+
+  it("never leaks another tenant's roster", async () => {
+    const tenantA = await createTenant("roster-iso-a");
+    const tenantB = await createTenant("roster-iso-b");
+    const deviceA = await createDevice(tenantA, "A's Hub");
+    const { pairingCode } = await service.generatePairingCode({ restaurantId: tenantA.restaurantId, actorUserId: tenantA.ownerUserId, deviceId: deviceA.id });
+    await service.redeemPairingCode(pairingCode);
+
+    const rosterForB = await service.listRosterForBranch(tenantB.restaurantId, tenantB.branchId);
+    expect(rosterForB).toHaveLength(0);
+  });
+});

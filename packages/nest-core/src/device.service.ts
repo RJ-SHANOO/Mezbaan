@@ -72,6 +72,21 @@ export class DeviceService {
     return withTenant(this.db, { restaurantId }, (tx) => tx.select().from(schema.devices));
   }
 
+  /** P2-36: every active device's id + token hash for one branch — what a
+   * hub fetches once while online so it can verify a peer's device token
+   * itself afterward, entirely offline, by hashing the presented raw token
+   * and checking it against this roster (see hub_auth.rs). Never exposes
+   * the raw token, same convention as every other tokenHash column. */
+  async listRosterForBranch(restaurantId: string, branchId: string): Promise<Array<{ deviceId: string; tokenHash: string }>> {
+    return withTenant(this.db, { restaurantId }, async (tx) => {
+      const rows = await tx
+        .select({ deviceId: schema.devices.id, tokenHash: schema.devices.tokenHash })
+        .from(schema.devices)
+        .where(and(eq(schema.devices.branchId, branchId), eq(schema.devices.status, "active")));
+      return rows.filter((row): row is { deviceId: string; tokenHash: string } => row.tokenHash !== null);
+    });
+  }
+
   async create(params: CreateDeviceParams): Promise<DeviceRecord> {
     return withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
       // terminal_number (P1-28's "T2" prefix) is assigned automatically by a DB

@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Post, UseGuards } from "@nestjs/common";
-import { DeviceSchema, RedeemPairingCodeSchema, type Device, type DeviceTokenResponse } from "@mezbaan/contracts";
+import { DeviceRosterEntrySchema, DeviceSchema, RedeemPairingCodeSchema, type Device, type DeviceRosterEntry, type DeviceTokenResponse } from "@mezbaan/contracts";
 import { CurrentDevice, DeviceAuthGuard } from "./device-auth.guard.js";
 import { DeviceService, type DeviceRecord } from "./device.service.js";
 import { parseOrBadRequest } from "./validation.js";
@@ -40,5 +40,17 @@ export class DevicesTerminalController {
   @UseGuards(DeviceAuthGuard)
   async me(@CurrentDevice() device: DeviceRecord): Promise<Device> {
     return toDeviceResponse(device);
+  }
+
+  /** P2-36: a hub (itself a paired device) fetches every OTHER active
+   * device's id + token hash for its own branch once, while online, so it
+   * can verify a peer presenting a raw device token entirely offline
+   * afterward — see hub_auth.rs. Gated the same way /devices/me is: only a
+   * device that already holds a valid token of its own can call this. */
+  @Get("roster")
+  @UseGuards(DeviceAuthGuard)
+  async roster(@CurrentDevice() device: DeviceRecord): Promise<DeviceRosterEntry[]> {
+    const entries = await this.deviceService.listRosterForBranch(device.restaurantId, device.branchId);
+    return entries.map((entry) => DeviceRosterEntrySchema.parse(entry));
   }
 }

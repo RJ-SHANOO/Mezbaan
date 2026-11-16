@@ -69,6 +69,10 @@ const MIGRATIONS: &[Migration] = &[
     Migration { version: 4, name: "document_number_sequence", sql: include_str!("../migrations/0004_document_number_sequence.sql") },
     Migration { version: 5, name: "menu_cache", sql: include_str!("../migrations/0005_menu_cache.sql") },
     Migration { version: 6, name: "modifier_cache", sql: include_str!("../migrations/0006_modifier_cache.sql") },
+    Migration { version: 7, name: "print_queue", sql: include_str!("../migrations/0007_print_queue.sql") },
+    Migration { version: 8, name: "hub_device_roster", sql: include_str!("../migrations/0008_hub_device_roster.sql") },
+    Migration { version: 9, name: "hub_shared_state", sql: include_str!("../migrations/0009_hub_shared_state.sql") },
+    Migration { version: 10, name: "menu_search_indexes", sql: include_str!("../migrations/0010_menu_search_indexes.sql") },
 ];
 
 fn db_path(app_data_dir: &Path) -> PathBuf {
@@ -176,6 +180,21 @@ fn init_with_key_account(app_data_dir: &Path, key_account: &str) -> Result<Conne
     let conn = open(&db_path(app_data_dir), &key)?;
     run_migrations(&conn)?;
     integrity_check(&conn)?;
+    Ok(conn)
+}
+
+/// P2-38: a second, independent connection to the same encrypted database
+/// (safe under WAL mode, rule 1-19 — this app is already WAL-mode for
+/// exactly this kind of multi-connection access) — for hub mode's
+/// background relay threads to persist shared state on their own, without
+/// contending with `DbState`'s connection, which every ordinary Tauri
+/// command already locks for the length of its own call. No integrity
+/// check here: `init()` already ran one for this file at app startup: a
+/// second connection has nothing new to verify.
+pub fn open_secondary(app_data_dir: &Path) -> Result<Connection, DbError> {
+    let key = load_or_create_key(DB_ENCRYPTION_KEY_ACCOUNT)?;
+    let conn = open(&db_path(app_data_dir), &key)?;
+    run_migrations(&conn)?;
     Ok(conn)
 }
 
