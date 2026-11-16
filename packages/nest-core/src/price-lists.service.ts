@@ -1,8 +1,9 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { asc, eq } from "drizzle-orm";
 import { schema, withTenant, type Database } from "@mezbaan/db";
 import { AuditLogService } from "./audit-log.service.js";
 import { DATABASE } from "./db.module.js";
+import { MenuSnapshotCacheService } from "./menu-snapshot-cache.service.js";
 
 export type OrderType = "dine_in" | "takeaway" | "delivery";
 
@@ -70,6 +71,11 @@ export class PriceListsService {
   constructor(
     @Inject(DATABASE) private readonly db: Database,
     private readonly auditLogService: AuditLogService,
+    // P2-43: optional, same reasoning as OrdersService's businessDaysService
+    // (P2-30) — a REQUIRED new param here would break every existing test
+    // file that directly instantiates `new PriceListsService(db, auditLogService)`
+    // with exactly two arguments (12 call sites as of this task).
+    @Optional() private readonly menuSnapshotCacheService?: MenuSnapshotCacheService,
   ) {}
 
   async list(restaurantId: string): Promise<PriceListRecord[]> {
@@ -151,7 +157,7 @@ export class PriceListsService {
   }
 
   async publish(params: PriceListActionParams): Promise<PriceListRecord> {
-    return withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
+    const priceList = await withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
       const existingRows = await tx.select().from(schema.priceLists).where(eq(schema.priceLists.id, params.priceListId));
       const existing = existingRows[0];
       if (!existing) throw new NotFoundException(PRICE_LIST_NOT_FOUND);
@@ -165,8 +171,8 @@ export class PriceListsService {
         .set({ status: "published", publishedAt: new Date(), updatedAt: new Date() })
         .where(eq(schema.priceLists.id, params.priceListId))
         .returning();
-      const priceList = rows[0];
-      if (!priceList) throw new NotFoundException(PRICE_LIST_NOT_FOUND);
+      const published = rows[0];
+      if (!published) throw new NotFoundException(PRICE_LIST_NOT_FOUND);
 
       await this.auditLogService.record(
         {
@@ -174,13 +180,22 @@ export class PriceListsService {
           actorUserId: params.actorUserId,
           action: "price_list.published",
           targetType: "price_list",
-          targetId: priceList.id,
-          metadata: { name: priceList.name, version: priceList.version },
+          targetId: published.id,
+          metadata: { name: published.name, version: published.version },
         },
         tx,
       );
-      return priceList;
+      return published;
     });
+
+    // P2-43: "clear the cache when a new version is published" — fires
+    // AFTER the transaction above has committed, never inside it: a cache
+    // invalidation shouldn't roll back just because, say, the audit write
+    // failed, and bumping it before the publish is actually durable would
+    // let a reader see a cleared cache for a price list that then fails to
+    // publish at all.
+    await this.menuSnapshotCacheService?.invalidateRestaurant(params.restaurantId);
+    return priceList;
   }
 
   async archive(params: PriceListActionParams): Promise<PriceListRecord> {

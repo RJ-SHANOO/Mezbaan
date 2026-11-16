@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { schema, withTenant, type Database } from "@mezbaan/db";
 import type { OrderType, SnapshotContent, SnapshotMenu, SyncSnapshotResponse } from "@mezbaan/contracts";
 import { DATABASE } from "./db.module.js";
+import { MenuSnapshotCacheService } from "./menu-snapshot-cache.service.js";
 import { PriceResolutionService } from "./price-resolution.service.js";
 import { signBytes } from "./snapshot-signing.js";
 
@@ -24,6 +25,7 @@ export class SyncSnapshotService {
   constructor(
     @Inject(DATABASE) private readonly db: Database,
     private readonly priceResolutionService: PriceResolutionService,
+    private readonly menuSnapshotCacheService: MenuSnapshotCacheService,
   ) {}
 
   async buildSnapshot(restaurantId: string, branchId: string): Promise<SyncSnapshotResponse> {
@@ -63,7 +65,22 @@ export class SyncSnapshotService {
     return { restaurantId, branches, staff, menu };
   }
 
+  /** P2-43: the expensive half — a full catalog read plus an N+1-shaped
+   * price-resolution loop over every product/variant/modifier-option
+   * across all three order types — is skipped entirely on a cache hit.
+   * `MenuSnapshotCacheService` fails soft on its own, so a Redis miss or
+   * outage here is indistinguishable from "nothing cached yet": this
+   * always falls through to a fresh, correct computation either way. */
   private async loadMenu(restaurantId: string, branchId: string): Promise<SnapshotMenu> {
+    const cached = await this.menuSnapshotCacheService.get(restaurantId, branchId);
+    if (cached) return cached;
+
+    const menu = await this.computeMenu(restaurantId, branchId);
+    await this.menuSnapshotCacheService.set(restaurantId, branchId, menu);
+    return menu;
+  }
+
+  private async computeMenu(restaurantId: string, branchId: string): Promise<SnapshotMenu> {
     const { categories, products, variants, modifierGroups, modifierOptions, productModifierGroups } = await withTenant(this.db, { restaurantId }, async (tx) => {
       const categories = await tx
         .select({ id: schema.categories.id, name: schema.categories.name, sortOrder: schema.categories.sortOrder })

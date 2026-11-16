@@ -248,8 +248,22 @@ pub fn list_categories(conn: &Connection) -> rusqlite::Result<Vec<MenuCategory>>
     rows.collect()
 }
 
-/// `category_id` filters to one category; `search` matches name/sku/barcode
-/// as a case-insensitive substring. Either or both may be omitted.
+/// `category_id` filters to one category (served by P2-41's
+/// `menu_products_category_sort_idx`, which covers both this filter and
+/// the `ORDER BY` below — no separate sort step); `search` matches name/
+/// sku/barcode as a case-insensitive substring. Either or both may be
+/// omitted.
+///
+/// P2-41 note: `search`'s leading-wildcard `LIKE '%...%'` can never use a
+/// plain b-tree index in SQLite, on this column or any other — that's a
+/// property of the query shape (a leading wildcard defeats a range scan),
+/// not a missing index. The correct tool would be an FTS5 virtual table
+/// with the trigram tokenizer, deliberately not added: this crate's
+/// bundled SQLite build hasn't been confirmed to have that tokenizer
+/// compiled in (no `cargo build` this session), and a wrong guess here
+/// would silently break menu sync rather than just being slow. At a single
+/// branch's realistic menu size (tens to a few hundred products), the full
+/// scan this performs is not expected to be a measurable bottleneck.
 pub fn list_products(conn: &Connection, category_id: Option<&str>, search: Option<&str>) -> rusqlite::Result<Vec<MenuProduct>> {
     let search_pattern = search.map(|s| format!("%{}%", s.to_lowercase()));
     let mut stmt = conn.prepare(

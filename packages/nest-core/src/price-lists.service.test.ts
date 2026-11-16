@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import type { MenuSnapshotCacheService } from "./menu-snapshot-cache.service.js";
 import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { createDb, createPool, schema, withTenant, type Database } from "@mezbaan/db";
 import type { Pool } from "pg";
@@ -120,6 +121,21 @@ describe("PriceListsService", () => {
     const published = await service.publish({ restaurantId: tenant.restaurantId, priceListId: priceList.id, actorUserId: tenant.ownerUserId });
     expect(published.status).toBe("published");
     expect(published.publishedAt).not.toBeNull();
+  });
+
+  it("invalidates the menu snapshot cache for this restaurant when one is provided (P2-43)", async () => {
+    const tenant = await createRestaurant("pl-publish-invalidates-cache");
+    const productId = await createProduct(tenant.restaurantId, tenant.ownerUserId);
+    const priceList = await service.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, name: "Standard", currency: "PKR" });
+    await itemsService.setPrice({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, priceListId: priceList.id, productId, unitPriceMinor: 1500n });
+
+    const fakeCache = { invalidateRestaurant: vi.fn().mockResolvedValue(undefined) } satisfies Partial<MenuSnapshotCacheService>;
+    const auditLogService = new AuditLogService(db);
+    const serviceWithCache = new PriceListsService(db, auditLogService, fakeCache as unknown as MenuSnapshotCacheService);
+
+    await serviceWithCache.publish({ restaurantId: tenant.restaurantId, priceListId: priceList.id, actorUserId: tenant.ownerUserId });
+
+    expect(fakeCache.invalidateRestaurant).toHaveBeenCalledWith(tenant.restaurantId);
   });
 
   it("rejects editing or publishing a price list that's already published", async () => {

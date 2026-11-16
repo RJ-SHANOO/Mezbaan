@@ -16,6 +16,7 @@
     "@mezbaan/contracts": "workspace:*",
     "@mezbaan/domain": "workspace:*",
     "@tanstack/react-query": "^5.90.0",
+    "@tanstack/react-virtual": "^3.11.2",
     "@tauri-apps/api": "^2.9.0",
     "@tauri-apps/plugin-process": "^2.4.0",
     "@tauri-apps/plugin-updater": "^2.14.1",

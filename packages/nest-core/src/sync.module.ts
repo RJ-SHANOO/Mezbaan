@@ -2,6 +2,7 @@ import { Module, type DynamicModule } from "@nestjs/common";
 import { AuditLogService } from "./audit-log.service.js";
 import { DeviceAuthGuard } from "./device-auth.guard.js";
 import { DeviceService } from "./device.service.js";
+import { MenuSnapshotCacheService } from "./menu-snapshot-cache.service.js";
 import { PriceResolutionService } from "./price-resolution.service.js";
 import { SyncController } from "./sync.controller.js";
 import { SyncService } from "./sync.service.js";
@@ -18,12 +19,14 @@ export class SyncModule {
    * (P1-27, SyncSnapshotController) sync share this module and its device-auth
    * providers rather than each duplicating them. PriceResolutionService is here
    * too (P2-11) — SyncSnapshotService calls it directly rather than duplicating
-   * P2-04's resolution logic for the menu snapshot's price list. */
+   * P2-04's resolution logic for the menu snapshot's price list. P2-43 adds
+   * MenuSnapshotCacheService (needs RedisModule.forRoot(...) already imported,
+   * same requirement as DbModule.forRoot(...) below). */
   static forRoot(): DynamicModule {
     return {
       module: SyncModule,
       controllers: [SyncController, SyncSnapshotController],
-      providers: [SyncService, SyncSnapshotService, DeviceService, AuditLogService, DeviceAuthGuard, PriceResolutionService],
+      providers: [SyncService, SyncSnapshotService, DeviceService, AuditLogService, DeviceAuthGuard, PriceResolutionService, MenuSnapshotCacheService],
       exports: [SyncService, SyncSnapshotService],
     };
   }

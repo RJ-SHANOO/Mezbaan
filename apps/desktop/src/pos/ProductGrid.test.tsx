@@ -64,3 +64,75 @@ describe("ProductGrid", () => {
     expect(cheeseburger?.getAttribute("aria-pressed")).toBe("true");
   });
 });
+
+/** P2-41: a menu past the virtualization threshold (60) only mounts its
+ * visible rows. jsdom has no real layout engine and no ResizeObserver, so
+ * both are stubbed here — without them `@tanstack/react-virtual` would
+ * either throw (no ResizeObserver) or compute a zero-height viewport and
+ * render nothing at all. */
+describe("ProductGrid — virtualized (large menus)", () => {
+  class ResizeObserverStub {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  }
+
+  const manyProducts: MenuProduct[] = Array.from({ length: 120 }, (_, i) => ({
+    id: `prod-${i}`,
+    categoryId: "cat-1",
+    name: `Product ${i}`,
+    sku: null,
+    barcode: null,
+    imageUrl: null,
+    sortOrder: i,
+    unitPriceMinor: "1000",
+    currency: "PKR",
+  }));
+
+  const originalClientHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight");
+
+  function stubLayout(): void {
+    vi.stubGlobal("ResizeObserver", ResizeObserverStub);
+    Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, value: 600 });
+  }
+
+  function renderMany(overrides: Partial<{ onSelect: (id: string) => void }> = {}): void {
+    stubLayout();
+    render({ products: manyProducts, ...overrides });
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    // jsdom defines clientHeight on a different prototype by default
+    // (HTMLElement.prototype has no own descriptor) — restoring `undefined`
+    // deletes our override instead of re-adding a bogus own property.
+    if (originalClientHeight) {
+      Object.defineProperty(HTMLElement.prototype, "clientHeight", originalClientHeight);
+    } else {
+      delete (HTMLElement.prototype as Partial<Record<"clientHeight", number>>).clientHeight;
+    }
+  });
+
+  it("does not mount every product at once", () => {
+    renderMany();
+    const tiles = container?.querySelectorAll("[role='listitem']") ?? [];
+    expect(tiles.length).toBeGreaterThan(0);
+    expect(tiles.length).toBeLessThan(manyProducts.length);
+  });
+
+  it("still renders the first product (within the initial visible window)", () => {
+    renderMany();
+    expect(container?.textContent).toContain("Product 0");
+  });
+
+  it("clicking a visible virtualized tile still calls onSelect correctly", () => {
+    const onSelect = vi.fn();
+    renderMany({ onSelect });
+
+    const firstTile = [...(container?.querySelectorAll("button") ?? [])].find((b) => b.textContent?.includes("Product 0"));
+    act(() => {
+      firstTile?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(onSelect).toHaveBeenCalledWith("prod-0");
+  });
+});

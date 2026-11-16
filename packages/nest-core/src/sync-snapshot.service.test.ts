@@ -2,9 +2,11 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDb, createPool, schema, withTenant, type Database } from "@mezbaan/db";
 import type { SnapshotMenu } from "@mezbaan/contracts";
+import { Redis } from "ioredis";
 import type { Pool } from "pg";
 import { AuditLogService } from "./audit-log.service.js";
 import { CategoriesService } from "./categories.service.js";
+import { MenuSnapshotCacheService } from "./menu-snapshot-cache.service.js";
 import { ModifierGroupsService } from "./modifier-groups.service.js";
 import { ModifierOptionsService } from "./modifier-options.service.js";
 import { PriceListItemsService } from "./price-list-items.service.js";
@@ -16,9 +18,12 @@ import { SyncSnapshotService } from "./sync-snapshot.service.js";
 
 const APP_DATABASE_URL =
   process.env.APP_DATABASE_URL ?? "postgres://mezbaan_app:mezbaan_app_dev_password@localhost:5433/mezbaan";
+const REDIS_URL = process.env.REDIS_URL ?? "redis://localhost:6379";
 
 let pool: Pool;
 let db: Database;
+let redis: Redis;
+let menuSnapshotCacheService: MenuSnapshotCacheService;
 let service: SyncSnapshotService;
 let categoriesService: CategoriesService;
 let productsService: ProductsService;
@@ -27,14 +32,29 @@ let priceListItemsService: PriceListItemsService;
 let modifierGroupsService: ModifierGroupsService;
 let modifierOptionsService: ModifierOptionsService;
 
-beforeAll(() => {
+beforeAll(async () => {
   pool = createPool(APP_DATABASE_URL);
   db = createDb(pool);
+  redis = new Redis(REDIS_URL, { lazyConnect: true, maxRetriesPerRequest: 1, enableOfflineQueue: false });
+  redis.on("error", () => {
+    // Same reasoning as redis.module.ts: an unhandled 'error' event on a
+    // Node EventEmitter crashes the process. MenuSnapshotCacheService
+    // fails soft on any Redis error either way, so a test environment
+    // without Redis running still exercises every non-caching assertion
+    // below correctly (every call just becomes an unconditional cache miss).
+  });
+  // Same reasoning as redis.module.ts's own connect() call — lazyConnect +
+  // enableOfflineQueue:false needs the connection actually established
+  // before the first real command. Swallowed on purpose: a test
+  // environment without Redis running must still reach every assertion
+  // below as an unconditional cache miss, not fail the whole suite here.
+  await redis.connect().catch(() => {});
   const auditLogService = new AuditLogService(db);
-  service = new SyncSnapshotService(db, new PriceResolutionService(db));
+  menuSnapshotCacheService = new MenuSnapshotCacheService(redis);
+  service = new SyncSnapshotService(db, new PriceResolutionService(db), menuSnapshotCacheService);
   categoriesService = new CategoriesService(db, auditLogService);
   productsService = new ProductsService(db, auditLogService);
-  priceListsService = new PriceListsService(db, auditLogService);
+  priceListsService = new PriceListsService(db, auditLogService, menuSnapshotCacheService);
   priceListItemsService = new PriceListItemsService(db, auditLogService);
   modifierGroupsService = new ModifierGroupsService(db, auditLogService);
   modifierOptionsService = new ModifierOptionsService(db, auditLogService);
@@ -42,6 +62,7 @@ beforeAll(() => {
 
 afterAll(async () => {
   await pool.end();
+  redis.disconnect();
 });
 
 async function ownerRoleId(): Promise<string> {
@@ -273,6 +294,50 @@ describe("SyncSnapshotService", () => {
 
       expect(menuA.categories).toEqual([]);
       expect(menuA.products).toEqual([]);
+    });
+  });
+
+  describe("menu snapshot caching (P2-43)", () => {
+    it("a category added after the first call doesn't appear until a price list publish invalidates the cache", async () => {
+      const fixture = await createFixture("snapshot-cache-invalidation");
+
+      const firstSnapshot = await service.buildSnapshot(fixture.restaurantId, fixture.branchId);
+      const firstMenu = parseMenu(firstSnapshot.contentJson);
+      expect(firstMenu.categories).toEqual([]);
+
+      // Category creation deliberately does NOT invalidate the menu cache
+      // (see menu-snapshot-cache.service.ts's own docs on why only
+      // price-list publish does) — so a cache hit should still reflect
+      // the OLD, now-stale content here.
+      const category = await categoriesService.create({ restaurantId: fixture.restaurantId, actorUserId: fixture.ownerUserId, name: "Burgers" });
+      const stillStaleSnapshot = await service.buildSnapshot(fixture.restaurantId, fixture.branchId);
+      const stillStaleMenu = parseMenu(stillStaleSnapshot.contentJson);
+      expect(stillStaleMenu.categories.map((c) => c.id)).not.toContain(category.id);
+
+      // Publishing ANY price list for this restaurant bumps the cache
+      // generation — the next call recomputes from scratch and finally
+      // sees the new category.
+      const product = await productsService.create({ restaurantId: fixture.restaurantId, actorUserId: fixture.ownerUserId, categoryId: category.id, name: "Cheeseburger" });
+      await publishPriceForProduct(fixture.restaurantId, fixture.ownerUserId, product.id, 1000n);
+
+      const freshSnapshot = await service.buildSnapshot(fixture.restaurantId, fixture.branchId);
+      const freshMenu = parseMenu(freshSnapshot.contentJson);
+      expect(freshMenu.categories.map((c) => c.id)).toContain(category.id);
+    });
+
+    it("invalidating one restaurant's cache never affects another's", async () => {
+      const a = await createFixture("snapshot-cache-iso-a");
+      const b = await createFixture("snapshot-cache-iso-b");
+
+      await service.buildSnapshot(a.restaurantId, a.branchId);
+      const bSnapshotBefore = await service.buildSnapshot(b.restaurantId, b.branchId);
+
+      await menuSnapshotCacheService.invalidateRestaurant(a.restaurantId);
+
+      const bSnapshotAfter = await service.buildSnapshot(b.restaurantId, b.branchId);
+      // b's cached content is untouched by a's invalidation — both calls
+      // return the same (empty) menu rather than one erroring or diverging.
+      expect(parseMenu(bSnapshotAfter.contentJson)).toEqual(parseMenu(bSnapshotBefore.contentJson));
     });
   });
 });
