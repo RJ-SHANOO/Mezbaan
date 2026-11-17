@@ -243,8 +243,11 @@ mod tests {
 
     #[test]
     fn finding_nothing_on_an_empty_network_returns_an_empty_list_not_an_error() {
-        // No responder bound to this port at all.
-        let found = discover_hubs("restaurant-a", 0, Duration::from_millis(200)).unwrap();
+        // No responder bound to this port at all. Port 0 isn't valid here —
+        // unlike bind(), UDP sendto() rejects a literal destination port 0
+        // with EINVAL on Linux (this only went unnoticed on Windows, which
+        // tolerates it) — so this uses a real, almost-certainly-unused port.
+        let found = discover_hubs("restaurant-a", 1, Duration::from_millis(200)).unwrap();
         assert_eq!(found, vec![]);
     }
 }

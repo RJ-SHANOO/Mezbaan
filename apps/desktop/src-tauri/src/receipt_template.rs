@@ -22,7 +22,7 @@ pub struct LogoBitmap {
     pub data: Vec<u8>,
 }
 
-#[derive(Deserialize, Debug, Clone, Default)]
+#[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ReceiptSettings {
     pub header_text: Option<String>,
@@ -36,6 +36,16 @@ pub struct ReceiptSettings {
 
 fn default_true() -> bool {
     true
+}
+
+// A derived Default would give show_tax_breakdown/show_service_charge
+// `false` (bool's own default) even though the serde-level default above is
+// `true` — derive(Default) and #[serde(default = ...)] are unrelated
+// mechanisms. Implemented by hand so both agree: absent means shown.
+impl Default for ReceiptSettings {
+    fn default() -> Self {
+        Self { header_text: None, footer_text: None, show_tax_breakdown: true, show_service_charge: true, logo_bitmap: None }
+    }
 }
 
 #[derive(Deserialize, Debug, Clone)]

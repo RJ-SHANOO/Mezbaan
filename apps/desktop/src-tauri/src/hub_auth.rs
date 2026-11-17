@@ -47,7 +47,7 @@ mod tests {
     fn hash_token_is_deterministic_and_matches_a_known_sha256_vector() {
         // sha256("") — a fixed, well-known test vector, confirms this isn't
         // accidentally hashing with a salt or a different algorithm.
-        assert_eq!(hash_token(""), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b85");
+        assert_eq!(hash_token(""), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
     }
 
     #[test]

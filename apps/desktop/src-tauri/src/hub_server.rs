@@ -412,6 +412,7 @@ fn extract_token(request: &Request) -> Option<String> {
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::time::Instant;
     use tungstenite::client::IntoClientRequest;
 
     fn test_roster() -> SharedRoster {
@@ -523,8 +524,23 @@ mod tests {
         server.stop();
         // If the listener thread genuinely stopped (rather than just the
         // handle being dropped while the OS socket lingers), a fresh bind
-        // on the exact same port should succeed.
-        let rebind = TcpListener::bind(("127.0.0.1", http_port));
+        // on the exact same port should succeed. Retries briefly rather than
+        // asserting immediately: Linux enforces TCP TIME_WAIT more strictly
+        // than Windows (this app's only real deployment target), so a
+        // same-port rebind right after close can take a moment there even
+        // when the listener thread stopped correctly — a genuine leak would
+        // still never succeed and this would still fail after the deadline.
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let rebind = loop {
+            match TcpListener::bind(("127.0.0.1", http_port)) {
+                Ok(listener) => break Ok(listener),
+                Err(_) if Instant::now() < deadline => {
+                    thread::sleep(Duration::from_millis(50));
+                    continue;
+                }
+                Err(e) => break Err(e),
+            }
+        };
         assert!(rebind.is_ok());
     }
 
