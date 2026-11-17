@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CartPanel } from "./CartPanel.js";
+import { CartPanel, type CheckoutStatus } from "./CartPanel.js";
 import type { CartLine } from "./cart.js";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -14,12 +14,17 @@ function makeLine(overrides: Partial<CartLine> = {}): CartLine {
   return { lineId: "line-1", productId: "prod-1", name: "Cheeseburger", quantity: 1, unitPriceMinor: "1500", currency: "PKR", modifiers: [], ...overrides };
 }
 
-function render(lines: CartLine[], onRemove: (lineId: string) => void = vi.fn()): void {
+function render(
+  lines: CartLine[],
+  onRemove: (lineId: string) => void = vi.fn(),
+  onCheckout: () => void = vi.fn(),
+  checkoutStatus: CheckoutStatus = { kind: "idle" },
+): void {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
   act(() => {
-    root?.render(<CartPanel lines={lines} onRemove={onRemove} />);
+    root?.render(<CartPanel lines={lines} onRemove={onRemove} onCheckout={onCheckout} checkoutStatus={checkoutStatus} />);
   });
 }
 
@@ -57,6 +62,37 @@ describe("CartPanel — small cart (unvirtualized)", () => {
   it("shows the cart total", () => {
     render([makeLine({ unitPriceMinor: "1500" }), makeLine({ lineId: "line-2", name: "Fries", unitPriceMinor: "500" })]);
     expect(container?.textContent).toContain("PKR 20.00");
+  });
+
+  it("calls onCheckout when the checkout button is clicked", () => {
+    const onCheckout = vi.fn();
+    render([makeLine()], vi.fn(), onCheckout);
+    const button = container?.querySelector("[aria-label='Checkout']");
+    act(() => {
+      button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(onCheckout).toHaveBeenCalled();
+  });
+
+  it("disables the checkout button while a sale is in progress", () => {
+    render([makeLine()], vi.fn(), vi.fn(), { kind: "checkingOut" });
+    const button = container?.querySelector("[aria-label='Checkout']");
+    expect(button?.hasAttribute("disabled")).toBe(true);
+    expect(button?.textContent).toContain("Completing sale");
+  });
+
+  it("shows the document number and total once a sale succeeds, even though the cart is now empty", () => {
+    render([], vi.fn(), vi.fn(), {
+      kind: "success",
+      invoice: { id: "op-1", documentNumber: "B1-T1-000001", orderType: "dine_in", currency: "PKR", subtotalMinor: "1500", serviceChargeMinor: "0", taxBaseMinor: "1500", taxMinor: "0", totalMinor: "1500" },
+    });
+    expect(container?.textContent).toContain("B1-T1-000001");
+    expect(container?.textContent).toContain("PKR 15.00");
+  });
+
+  it("shows a readable error when checkout fails", () => {
+    render([makeLine()], vi.fn(), vi.fn(), { kind: "error", message: "this terminal has no stored branch/terminal number — pair it again" });
+    expect(container?.textContent).toContain("pair it again");
   });
 });
 

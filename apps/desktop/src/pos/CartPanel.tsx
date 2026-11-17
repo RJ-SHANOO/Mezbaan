@@ -1,11 +1,19 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useRef, type ReactElement } from "react";
+import type { OfflineInvoice } from "../shared/offline-sale-client.js";
 import { cartTotal, lineTotal, type CartLine } from "./cart.js";
 import { formatMoney, formatPrice } from "./format-price.js";
+
+/** P2-45: the checkout button's own state — owned by the caller (PosScreen),
+ * since completing a sale needs cartLines plus a stable idempotency key
+ * across retries, neither of which belongs to this presentational panel. */
+export type CheckoutStatus = { kind: "idle" } | { kind: "checkingOut" } | { kind: "success"; invoice: OfflineInvoice } | { kind: "error"; message: string };
 
 interface CartPanelProps {
   lines: CartLine[];
   onRemove: (lineId: string) => void;
+  onCheckout: () => void;
+  checkoutStatus: CheckoutStatus;
 }
 
 /** Below this, every line renders directly (P2-12's original, unchanged) —
@@ -51,7 +59,7 @@ function CartLineRow({ line, onRemove }: { line: CartLine; onRemove: (lineId: st
  * mounted via `@tanstack/react-virtual`, measuring each line's real
  * rendered height (`measureElement`) rather than assuming a fixed one —
  * a line's height varies with how many modifiers it carries. */
-export function CartPanel({ lines, onRemove }: CartPanelProps): ReactElement {
+export function CartPanel({ lines, onRemove, onCheckout, checkoutStatus }: CartPanelProps): ReactElement {
   const total = cartTotal(lines);
   const scrollRef = useRef<HTMLUListElement>(null);
   const rowVirtualizer = useVirtualizer({
@@ -65,6 +73,7 @@ export function CartPanel({ lines, onRemove }: CartPanelProps): ReactElement {
     return (
       <aside className="flex w-72 flex-col gap-2 rounded-lg bg-white p-3" aria-label="Cart">
         <p className="text-sm text-slate-400">Cart is empty.</p>
+        <CheckoutStatusNote status={checkoutStatus} />
       </aside>
     );
   }
@@ -102,6 +111,37 @@ export function CartPanel({ lines, onRemove }: CartPanelProps): ReactElement {
         <span>Total</span>
         <span>{total ? formatMoney(total) : "—"}</span>
       </div>
+      <button
+        type="button"
+        onClick={onCheckout}
+        disabled={checkoutStatus.kind === "checkingOut"}
+        aria-label="Checkout"
+        className="rounded-lg bg-brand-purple px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+      >
+        {checkoutStatus.kind === "checkingOut" ? "Completing sale…" : "Checkout"}
+      </button>
+      <CheckoutStatusNote status={checkoutStatus} />
     </aside>
   );
+}
+
+/** P2-45: the checkout button's own result — a successful sale clears the
+ * cart (see PosScreen), so this is what still shows once `lines` is empty
+ * again: the document number the cashier hands the customer. */
+function CheckoutStatusNote({ status }: { status: CheckoutStatus }): ReactElement | null {
+  if (status.kind === "success") {
+    return (
+      <p className="rounded-lg bg-green-50 p-2 text-xs text-green-700" role="status">
+        Sale completed — {status.invoice.documentNumber}. Total: {formatPrice(status.invoice.totalMinor, status.invoice.currency)}
+      </p>
+    );
+  }
+  if (status.kind === "error") {
+    return (
+      <p className="text-xs text-red-600" role="alert">
+        {status.message}
+      </p>
+    );
+  }
+  return null;
 }

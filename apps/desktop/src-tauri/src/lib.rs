@@ -1,6 +1,7 @@
 mod charges;
 mod charges_commands;
 mod db;
+mod device_identity;
 mod device_token;
 mod document_number;
 mod escpos;
@@ -13,6 +14,8 @@ mod hub_state;
 mod manager_pin_offline;
 mod menu_cache;
 mod menu_commands;
+mod offline_sale_commands;
+mod offline_sales;
 mod operation_log;
 mod pending_work;
 mod pending_work_commands;
@@ -54,6 +57,7 @@ pub fn run() {
             device_token::store_device_token,
             device_token::get_device_token,
             device_token::clear_device_token,
+            device_token::save_device_identity,
             update_commands::rollback_status,
             update_commands::confirm_boot_successful,
             pending_work_commands::save_pending_work,
@@ -68,6 +72,7 @@ pub fn run() {
             menu_commands::get_menu_sync_version,
             menu_commands::get_tax_config,
             charges_commands::compute_offline_charges,
+            offline_sale_commands::complete_offline_sale,
             printer_commands::print_raw_escpos,
             printer_commands::kick_cash_drawer,
             printer_commands::enqueue_print_job,

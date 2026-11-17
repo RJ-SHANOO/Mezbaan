@@ -71,6 +71,7 @@ describe("PairingGate", () => {
     invokeMock.mockImplementation((command: string) => {
       if (command === "get_device_token") return Promise.resolve(null);
       if (command === "store_device_token") return Promise.resolve(undefined);
+      if (command === "save_device_identity") return Promise.resolve(undefined);
       throw new Error(`unexpected command: ${command}`);
     });
     vi.stubGlobal(
@@ -105,6 +106,7 @@ describe("PairingGate", () => {
 
     expect(el.textContent).toContain("pos content");
     expect(invokeMock).toHaveBeenCalledWith("store_device_token", { token: "r1.newtoken" });
+    expect(invokeMock).toHaveBeenCalledWith("save_device_identity", { branchNumber: 1, terminalNumber: 1 });
   });
 
   it("shows a readable error when the pairing code is rejected, without storing anything", async () => {

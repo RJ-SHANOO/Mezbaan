@@ -11,13 +11,18 @@ import {
   type ModifierGroup,
   type ModifierOption,
 } from "../shared/menu-client.js";
+import { completeOfflineSale } from "../shared/offline-sale-client.js";
 import { addLine, modifierToCartLineModifier, removeLine, type CartLine } from "./cart.js";
-import { CartPanel } from "./CartPanel.js";
+import { CartPanel, type CheckoutStatus } from "./CartPanel.js";
 import { CategoryGrid } from "./CategoryGrid.js";
 import { ModifierPicker } from "./ModifierPicker.js";
 import { ProductGrid } from "./ProductGrid.js";
 import { useBarcodeScanner } from "./useBarcodeScanner.js";
 import { useKeyboardShortcuts } from "./useKeyboardShortcuts.js";
+
+/** P2-11's screen has no order-type selector yet (see menu_cache.rs's own
+ * docs) — checkout shares that same deliberate simplification. */
+const DEFAULT_ORDER_TYPE = "dine_in";
 
 /**
  * P2-11: the touch-first POS screen — category grid, free-text search,
@@ -47,6 +52,13 @@ export function PosScreen(): ReactElement {
   const [cartLines, setCartLines] = useState<CartLine[]>([]);
   const [modifierPicker, setModifierPicker] = useState<{ product: MenuProduct; groups: ModifierGroup[] } | null>(null);
   const [cartError, setCartError] = useState<string | null>(null);
+  const [checkoutStatus, setCheckoutStatus] = useState<CheckoutStatus>({ kind: "idle" });
+  // Generated once per checkout attempt, kept stable across a retry (e.g. a
+  // double-click, or clicking Checkout again after a transient error) so
+  // offline_sales.rs's idempotency check returns the original sale rather
+  // than creating a duplicate one. Cleared only once that attempt actually
+  // succeeds, so the *next* sale gets a fresh key.
+  const checkoutIdempotencyKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -94,6 +106,7 @@ export function PosScreen(): ReactElement {
 
   const addProductToCart = useCallback((product: MenuProduct, modifiers: ModifierOption[] = []) => {
     setCartError(null);
+    setCheckoutStatus({ kind: "idle" });
     const line: CartLine = {
       lineId: crypto.randomUUID(),
       productId: product.id,
@@ -125,6 +138,22 @@ export function PosScreen(): ReactElement {
     },
     [addProductToCart],
   );
+
+  const handleCheckout = useCallback(() => {
+    if (cartLines.length === 0 || checkoutStatus.kind === "checkingOut") return;
+    checkoutIdempotencyKeyRef.current ??= crypto.randomUUID();
+    const idempotencyKey = checkoutIdempotencyKeyRef.current;
+    setCheckoutStatus({ kind: "checkingOut" });
+    completeOfflineSale(DEFAULT_ORDER_TYPE, cartLines[0]!.currency, cartLines, idempotencyKey)
+      .then((invoice) => {
+        setCheckoutStatus({ kind: "success", invoice });
+        setCartLines([]);
+        checkoutIdempotencyKeyRef.current = null;
+      })
+      .catch((error: unknown) => {
+        setCheckoutStatus({ kind: "error", message: error instanceof Error ? error.message : "Couldn't complete the sale." });
+      });
+  }, [cartLines, checkoutStatus.kind]);
 
   const handleScan = useCallback(
     (code: string) => {
@@ -215,7 +244,12 @@ export function PosScreen(): ReactElement {
           )}
         </div>
 
-        <CartPanel lines={cartLines} onRemove={(lineId) => setCartLines((lines) => removeLine(lines, lineId))} />
+        <CartPanel
+          lines={cartLines}
+          onRemove={(lineId) => setCartLines((lines) => removeLine(lines, lineId))}
+          onCheckout={handleCheckout}
+          checkoutStatus={checkoutStatus}
+        />
       </div>
 
       {modifierPicker && (

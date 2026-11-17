@@ -21,6 +21,11 @@ vi.mock("../shared/menu-client.js", () => ({
   getModifierGroupsForProduct: (...args: unknown[]) => getModifierGroupsForProductMock(...args),
 }));
 
+const completeOfflineSaleMock = vi.fn();
+vi.mock("../shared/offline-sale-client.js", () => ({
+  completeOfflineSale: (...args: unknown[]) => completeOfflineSaleMock(...args),
+}));
+
 const { PosScreen } = await import("./PosScreen.js");
 
 let container: HTMLDivElement | undefined;
@@ -67,6 +72,7 @@ afterEach(() => {
   syncMenuMock.mockReset();
   getMenuSyncVersionMock.mockReset();
   getModifierGroupsForProductMock.mockReset();
+  completeOfflineSaleMock.mockReset();
 });
 
 describe("PosScreen", () => {
@@ -287,6 +293,68 @@ describe("PosScreen", () => {
       });
 
       expect(container?.querySelector("[aria-label='Cart']")?.textContent).toContain("Cart is empty.");
+    });
+
+    async function addProductToCartViaTap(): Promise<void> {
+      const tile = [...(container?.querySelectorAll("button") ?? [])].find((b) => b.textContent?.includes("Cheeseburger"));
+      await act(async () => {
+        tile?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+        await Promise.resolve();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    }
+
+    it("completes a sale with the cart's own order type and currency, then clears the cart and shows the document number", async () => {
+      getMenuCategoriesMock.mockResolvedValue([]);
+      getMenuProductsMock.mockResolvedValue([product]);
+      syncMenuMock.mockResolvedValue("v1");
+      getModifierGroupsForProductMock.mockResolvedValue([]);
+      completeOfflineSaleMock.mockResolvedValue({
+        id: "op-1",
+        documentNumber: "B1-T1-000001",
+        orderType: "dine_in",
+        currency: "PKR",
+        subtotalMinor: "1500",
+        serviceChargeMinor: "0",
+        taxBaseMinor: "1500",
+        taxMinor: "0",
+        totalMinor: "1500",
+      });
+      await renderAndFlush();
+      await addProductToCartViaTap();
+
+      const checkoutButton = container?.querySelector("[aria-label='Checkout']");
+      await act(async () => {
+        checkoutButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+        await Promise.resolve();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(completeOfflineSaleMock).toHaveBeenCalledWith("dine_in", "PKR", expect.arrayContaining([expect.objectContaining({ productId: "prod-1" })]), expect.any(String));
+      const cart = container?.querySelector("[aria-label='Cart']");
+      expect(cart?.textContent).toContain("Cart is empty.");
+      expect(cart?.textContent).toContain("B1-T1-000001");
+    });
+
+    it("shows a readable error and keeps the cart intact when checkout fails", async () => {
+      getMenuCategoriesMock.mockResolvedValue([]);
+      getMenuProductsMock.mockResolvedValue([product]);
+      syncMenuMock.mockResolvedValue("v1");
+      getModifierGroupsForProductMock.mockResolvedValue([]);
+      completeOfflineSaleMock.mockRejectedValue(new Error("this terminal has no stored branch/terminal number — pair it again"));
+      await renderAndFlush();
+      await addProductToCartViaTap();
+
+      const checkoutButton = container?.querySelector("[aria-label='Checkout']");
+      await act(async () => {
+        checkoutButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+        await Promise.resolve();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      const cart = container?.querySelector("[aria-label='Cart']");
+      expect(cart?.textContent).toContain("pair it again");
+      expect(cart?.textContent).toContain("1× Cheeseburger"); // the sale failed, so nothing was cleared
     });
   });
 });
