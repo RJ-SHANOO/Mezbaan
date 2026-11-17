@@ -72,11 +72,21 @@ describe("CartPanel — virtualized (large orders)", () => {
   }
 
   const originalClientHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight");
+  const originalOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
   const manyLines: CartLine[] = Array.from({ length: 80 }, (_, i) => makeLine({ lineId: `line-${i}`, name: `Item ${i}` }));
 
   function renderMany(onRemove: (lineId: string) => void = vi.fn()): void {
     vi.stubGlobal("ResizeObserver", ResizeObserverStub);
     Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, value: 600 });
+    // CartPanel (unlike ProductGrid) measures each row's real rendered height
+    // via measureElement, since a line's height varies with its modifier
+    // count. With no ResizeObserver entry (the stub above never calls back),
+    // @tanstack/virtual-core's default measureElement reads offsetHeight —
+    // jsdom has no layout engine, so that's always 0, collapsing every row's
+    // measured size and corrupting the virtualized window across re-renders.
+    // Stubbing it to the component's own estimate keeps the window stable
+    // without changing any production code.
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, value: 72 }); // must match CartPanel's ESTIMATED_LINE_HEIGHT_PX
     render(manyLines, onRemove);
   }
 
@@ -86,6 +96,11 @@ describe("CartPanel — virtualized (large orders)", () => {
       Object.defineProperty(HTMLElement.prototype, "clientHeight", originalClientHeight);
     } else {
       delete (HTMLElement.prototype as Partial<Record<"clientHeight", number>>).clientHeight;
+    }
+    if (originalOffsetHeight) {
+      Object.defineProperty(HTMLElement.prototype, "offsetHeight", originalOffsetHeight);
+    } else {
+      delete (HTMLElement.prototype as Partial<Record<"offsetHeight", number>>).offsetHeight;
     }
   });
 
