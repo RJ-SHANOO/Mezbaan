@@ -27,12 +27,26 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      # P2-43's MenuSnapshotCacheService fails soft when Redis is unreachable
+      # (rule 14 — a cache outage must never fail a sync), so without this
+      # its own tests silently got every call treated as a cache miss instead
+      # of genuinely exercising the cache-hit path they're testing.
+      valkey:
+        image: valkey/valkey:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       # Owner connection, for migrations/seeding only — bypasses RLS (rule: never used
       # for anything that reads or writes tenant data). See packages/db/.env.example.
       DATABASE_URL: postgres://mezbaan:mezbaan_dev_password@localhost:5432/mezbaan
       # Restricted role the tenant-isolation tests actually run as, so RLS applies.
       APP_DATABASE_URL: postgres://mezbaan_app:mezbaan_app_dev_password@localhost:5432/mezbaan
+      REDIS_URL: redis://localhost:6379
     steps:
       - uses: actions/checkout@v4
 
@@ -69,6 +83,94 @@ jobs:
 
       - name: Seed roles and permissions
         run: node packages/db/dist/seed-cli.js
+
+      # P2-44's image-upload e2e test needs a real S3-compatible endpoint —
+      # mirrors infra/docker-compose.yml's garage + garage-init services,
+      # using the exact same throwaway dev credentials api-admin's own
+      # DEFAULT_S3_* fallbacks already assume, so no new env vars are needed.
+      # Run directly as job steps (not a `services:` container) since Garage
+      # needs a mounted config file and a one-time layout/key/bucket setup
+      # that `services:` has no hook for.
+      - name: Start Garage (S3-compatible storage)
+        run: |
+          docker run -d --name garage \
+            -p 9000:3900 -p 3903:3903 \
+            -v "$PWD/infra/garage.toml:/etc/garage.toml:ro" \
+            dxflrs/garage:v1.0.1
+
+      # Same steps as infra/garage-init.sh, run directly on the runner instead
+      # of a shared-network alpine sidecar — the runner already has curl/jq
+      # and can already reach Garage's admin API on its mapped host port, so
+      # the sidecar-and-apk-install dance that script needs (the Garage image
+      # itself has no shell) isn't necessary here.
+      - name: Initialize Garage (layout, key, bucket)
+        env:
+          GARAGE_ADMIN_TOKEN: 2925a2d4ba0a341fbce668efb3f61d612899db9c47306cb57472a9233b618cfa
+          GARAGE_BUCKET: mezbaan-local
+          GARAGE_KEY_NAME: mezbaan-local-key
+          GARAGE_ACCESS_KEY_ID: GKf72f4a98ea11b3a20ece3475
+          GARAGE_SECRET_ACCESS_KEY: e64b2bc9bd42da7e9d1f585cf1b7364468ef0f30810c08b5b03b05a2cf41a09d
+        run: |
+          set -eu
+          ADMIN_URL="http://127.0.0.1:3903/v1"
+          AUTH="Authorization: Bearer ${GARAGE_ADMIN_TOKEN}"
+
+          echo "garage-init: waiting for admin API..."
+          for i in $(seq 1 30); do
+            if curl -fs -H "$AUTH" "$ADMIN_URL/status" >/tmp/status.json 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl -fs -H "$AUTH" "$ADMIN_URL/status" >/tmp/status.json
+          curl -fs -H "$AUTH" "$ADMIN_URL/layout" >/tmp/layout.json
+
+          NODE_ID=$(jq -r '.node' /tmp/status.json)
+          CURRENT_VERSION=$(jq -r '.version' /tmp/layout.json)
+          HAS_ROLE=$(jq --arg id "$NODE_ID" '.roles | map(select(.id == $id)) | length' /tmp/layout.json)
+
+          if [ "$HAS_ROLE" = "0" ]; then
+            echo "garage-init: assigning layout to node $NODE_ID"
+            curl -fs -X POST -H "$AUTH" -H "Content-Type: application/json" \
+              -d "[{\"id\":\"$NODE_ID\",\"zone\":\"dc1\",\"capacity\":1000000000,\"tags\":[]}]" \
+              "$ADMIN_URL/layout" >/dev/null
+
+            NEW_VERSION=$((CURRENT_VERSION + 1))
+            curl -fs -X POST -H "$AUTH" -H "Content-Type: application/json" \
+              -d "{\"version\":$NEW_VERSION}" \
+              "$ADMIN_URL/layout/apply" >/dev/null
+            echo "garage-init: layout applied (version $NEW_VERSION)"
+          else
+            echo "garage-init: layout already assigned, skipping"
+          fi
+
+          echo "garage-init: ensuring access key $GARAGE_KEY_NAME exists"
+          if ! curl -fs -H "$AUTH" "$ADMIN_URL/key?id=$GARAGE_ACCESS_KEY_ID" >/dev/null 2>&1; then
+            curl -fs -X POST -H "$AUTH" -H "Content-Type: application/json" \
+              -d "{\"name\":\"$GARAGE_KEY_NAME\",\"accessKeyId\":\"$GARAGE_ACCESS_KEY_ID\",\"secretAccessKey\":\"$GARAGE_SECRET_ACCESS_KEY\"}" \
+              "$ADMIN_URL/key/import" >/dev/null
+            echo "garage-init: imported key $GARAGE_ACCESS_KEY_ID"
+          else
+            echo "garage-init: key already exists, skipping import"
+          fi
+
+          echo "garage-init: ensuring bucket $GARAGE_BUCKET exists"
+          if ! curl -fs -H "$AUTH" "$ADMIN_URL/bucket?globalAlias=$GARAGE_BUCKET" >/tmp/bucket.json 2>&1; then
+            curl -fs -X POST -H "$AUTH" -H "Content-Type: application/json" \
+              -d "{\"globalAlias\":\"$GARAGE_BUCKET\"}" \
+              "$ADMIN_URL/bucket" >/tmp/bucket.json
+            echo "garage-init: created bucket $GARAGE_BUCKET"
+          else
+            echo "garage-init: bucket already exists, skipping create"
+          fi
+          BUCKET_ID=$(jq -r '.id' /tmp/bucket.json)
+
+          echo "garage-init: granting key access to bucket"
+          curl -fs -X POST -H "$AUTH" -H "Content-Type: application/json" \
+            -d "{\"bucketId\":\"$BUCKET_ID\",\"accessKeyId\":\"$GARAGE_ACCESS_KEY_ID\",\"permissions\":{\"read\":true,\"write\":true,\"owner\":true}}" \
+            "$ADMIN_URL/bucket/allow" >/dev/null
+
+          echo "garage-init: done"
 
       - name: Test
         run: pnpm test
@@ -137,9 +239,19 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      valkey:
+        image: valkey/valkey:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       DATABASE_URL: postgres://mezbaan:mezbaan_dev_password@localhost:5432/mezbaan
       APP_DATABASE_URL: postgres://mezbaan_app:mezbaan_app_dev_password@localhost:5432/mezbaan
+      REDIS_URL: redis://localhost:6379
     steps:
       - uses: actions/checkout@v4
 
