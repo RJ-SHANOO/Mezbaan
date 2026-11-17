@@ -1,3 +1,5 @@
+mod charges;
+mod charges_commands;
 mod db;
 mod device_token;
 mod document_number;
@@ -65,6 +67,7 @@ pub fn run() {
             menu_commands::get_modifier_groups_for_product,
             menu_commands::get_menu_sync_version,
             menu_commands::get_tax_config,
+            charges_commands::compute_offline_charges,
             printer_commands::print_raw_escpos,
             printer_commands::kick_cash_drawer,
             printer_commands::enqueue_print_job,
