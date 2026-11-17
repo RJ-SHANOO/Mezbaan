@@ -7,7 +7,7 @@
 use crate::db::DbState;
 use crate::device_token::DEVICE_TOKEN_ACCOUNT;
 use crate::manager_pin_offline;
-use crate::menu_cache::{self, MenuCategory, MenuProduct, ModifierGroupWithOptions};
+use crate::menu_cache::{self, MenuCategory, MenuProduct, ModifierGroupWithOptions, TaxConfig};
 use crate::secure_store;
 use crate::snapshot_sync;
 use crate::sync_status;
@@ -71,4 +71,15 @@ pub fn get_modifier_groups_for_product(db_state: State<DbState>, product_id: Str
     let guard = db_state.0.lock().map_err(|e| e.to_string())?;
     let conn = guard.as_ref().ok_or_else(|| "local database unavailable".to_string())?;
     menu_cache::list_modifier_groups_for_product(conn, &product_id).map_err(|e| e.to_string())
+}
+
+/// P2-45: the resolved tax/service-charge config for one order type, read
+/// straight from local storage — what an offline sale's own charge
+/// computation needs, with no network call. `None` means this order type
+/// was never synced, not an error.
+#[tauri::command]
+pub fn get_tax_config(db_state: State<DbState>, order_type: String) -> Result<Option<TaxConfig>, String> {
+    let guard = db_state.0.lock().map_err(|e| e.to_string())?;
+    let conn = guard.as_ref().ok_or_else(|| "local database unavailable".to_string())?;
+    menu_cache::get_tax_config(conn, &order_type).map_err(|e| e.to_string())
 }

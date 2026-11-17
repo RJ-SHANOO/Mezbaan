@@ -73,6 +73,7 @@ const MIGRATIONS: &[Migration] = &[
     Migration { version: 8, name: "hub_device_roster", sql: include_str!("../migrations/0008_hub_device_roster.sql") },
     Migration { version: 9, name: "hub_shared_state", sql: include_str!("../migrations/0009_hub_shared_state.sql") },
     Migration { version: 10, name: "menu_search_indexes", sql: include_str!("../migrations/0010_menu_search_indexes.sql") },
+    Migration { version: 11, name: "tax_config_cache", sql: include_str!("../migrations/0011_tax_config_cache.sql") },
 ];
 
 fn db_path(app_data_dir: &Path) -> PathBuf {

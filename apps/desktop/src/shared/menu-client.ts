@@ -41,6 +41,23 @@ export interface ModifierGroup {
   options: ModifierOption[];
 }
 
+export interface AppliedTaxRule {
+  name: string;
+  rateBasisPoints: number;
+}
+
+/** P2-45: one order type's already-resolved tax/service-charge config,
+ * synced down by P1-27's snapshot — the input packages/domain's
+ * computeCharges needs to price an offline sale, with no network call. */
+export interface TaxConfig {
+  orderType: string;
+  pricingMode: "inclusive" | "exclusive";
+  taxRateBasisPoints: number;
+  appliedTaxRules: AppliedTaxRule[];
+  serviceChargeRateBasisPoints: number | null;
+  serviceChargeIsTaxable: boolean | null;
+}
+
 /** P2-11: thin wrappers over the menu_cache Tauri commands — every call here
  * reads from the terminal's own local SQLite cache, with no network call in
  * the sale path (rule: "no network call in the sale path"). */
@@ -75,4 +92,10 @@ export function syncMenu(): Promise<string> {
  * on mount even before (or if) this session's own sync_menu resolves. */
 export function getMenuSyncVersion(): Promise<string | null> {
   return invoke<string | null>("get_menu_sync_version");
+}
+
+/** P2-45: null means this order type was never synced (e.g. a restaurant
+ * hasn't configured any tax rules at all), not an error. */
+export function getTaxConfig(orderType: string): Promise<TaxConfig | null> {
+  return invoke<TaxConfig | null>("get_tax_config", { orderType });
 }

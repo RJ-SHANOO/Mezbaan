@@ -125,6 +125,29 @@ struct SnapshotProductModifierGroup {
 }
 
 #[derive(Deserialize)]
+struct SnapshotAppliedTaxRule {
+    name: String,
+    #[serde(rename = "rateBasisPoints")]
+    rate_basis_points: i64,
+}
+
+#[derive(Deserialize)]
+struct SnapshotTaxConfig {
+    #[serde(rename = "orderType")]
+    order_type: String,
+    #[serde(rename = "pricingMode")]
+    pricing_mode: String,
+    #[serde(rename = "taxRateBasisPoints")]
+    tax_rate_basis_points: i64,
+    #[serde(rename = "appliedTaxRules")]
+    applied_tax_rules: Vec<SnapshotAppliedTaxRule>,
+    #[serde(rename = "serviceChargeRateBasisPoints")]
+    service_charge_rate_basis_points: Option<i64>,
+    #[serde(rename = "serviceChargeIsTaxable")]
+    service_charge_is_taxable: Option<bool>,
+}
+
+#[derive(Deserialize)]
 struct SnapshotMenu {
     categories: Vec<SnapshotMenuCategory>,
     products: Vec<SnapshotMenuProduct>,
@@ -136,6 +159,8 @@ struct SnapshotMenu {
     modifier_options: Vec<SnapshotModifierOption>,
     #[serde(rename = "productModifierGroups", default)]
     product_modifier_groups: Vec<SnapshotProductModifierGroup>,
+    #[serde(rename = "taxConfig", default)]
+    tax_config: Vec<SnapshotTaxConfig>,
 }
 
 #[derive(Deserialize)]
@@ -157,6 +182,8 @@ pub fn ingest_snapshot(conn: &mut Connection, content_json: &str) -> Result<usiz
     tx.execute("DELETE FROM menu_variants", [])?;
     tx.execute("DELETE FROM menu_products", [])?;
     tx.execute("DELETE FROM menu_categories", [])?;
+    tx.execute("DELETE FROM tax_config_applied_rules", [])?;
+    tx.execute("DELETE FROM tax_config", [])?;
 
     for category in &menu.categories {
         tx.execute(
@@ -208,6 +235,18 @@ pub fn ingest_snapshot(conn: &mut Connection, content_json: &str) -> Result<usiz
             "INSERT INTO product_modifier_groups (product_id, modifier_group_id, sort_order) VALUES (?1, ?2, ?3)",
             (&link.product_id, &link.modifier_group_id, link.sort_order),
         )?;
+    }
+    for tax in &menu.tax_config {
+        tx.execute(
+            "INSERT INTO tax_config (order_type, pricing_mode, tax_rate_basis_points, service_charge_rate_basis_points, service_charge_is_taxable) VALUES (?1, ?2, ?3, ?4, ?5)",
+            (&tax.order_type, &tax.pricing_mode, tax.tax_rate_basis_points, tax.service_charge_rate_basis_points, tax.service_charge_is_taxable),
+        )?;
+        for rule in &tax.applied_tax_rules {
+            tx.execute(
+                "INSERT INTO tax_config_applied_rules (order_type, name, rate_basis_points) VALUES (?1, ?2, ?3)",
+                (&tax.order_type, &rule.name, rule.rate_basis_points),
+            )?;
+        }
     }
 
     let count = menu.categories.len() + menu.products.len();
@@ -352,6 +391,58 @@ pub fn list_modifier_groups_for_product(conn: &Connection, product_id: &str) -> 
     Ok(result)
 }
 
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AppliedTaxRule {
+    pub name: String,
+    pub rate_basis_points: i64,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TaxConfig {
+    pub order_type: String,
+    pub pricing_mode: String,
+    pub tax_rate_basis_points: i64,
+    pub applied_tax_rules: Vec<AppliedTaxRule>,
+    pub service_charge_rate_basis_points: Option<i64>,
+    pub service_charge_is_taxable: Option<bool>,
+}
+
+/// One order type's already-resolved tax/service-charge config — the input
+/// an offline sale's own charge computation (P2-45) needs, with no network
+/// call. `None` means this order type was never synced (e.g. a restaurant
+/// hasn't configured any tax rules at all), not an error.
+pub fn get_tax_config(conn: &Connection, order_type: &str) -> rusqlite::Result<Option<TaxConfig>> {
+    let base = conn
+        .query_row(
+            "SELECT order_type, pricing_mode, tax_rate_basis_points, service_charge_rate_basis_points, service_charge_is_taxable
+             FROM tax_config WHERE order_type = ?1",
+            [order_type],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, Option<i64>>(3)?,
+                    row.get::<_, Option<bool>>(4)?,
+                ))
+            },
+        )
+        .optional()?;
+
+    let Some((order_type, pricing_mode, tax_rate_basis_points, service_charge_rate_basis_points, service_charge_is_taxable)) = base else {
+        return Ok(None);
+    };
+
+    let mut rule_stmt = conn.prepare("SELECT name, rate_basis_points FROM tax_config_applied_rules WHERE order_type = ?1")?;
+    let applied_tax_rules = rule_stmt
+        .query_map([&order_type], |row| Ok(AppliedTaxRule { name: row.get(0)?, rate_basis_points: row.get(1)? }))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    Ok(Some(TaxConfig { order_type, pricing_mode, tax_rate_basis_points, applied_tax_rules, service_charge_rate_basis_points, service_charge_is_taxable }))
+}
+
 fn map_product_row(row: &rusqlite::Row) -> rusqlite::Result<MenuProduct> {
     Ok(MenuProduct {
         id: row.get(0)?,
@@ -375,6 +466,7 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(include_str!("../migrations/0005_menu_cache.sql")).unwrap();
         conn.execute_batch(include_str!("../migrations/0006_modifier_cache.sql")).unwrap();
+        conn.execute_batch(include_str!("../migrations/0011_tax_config_cache.sql")).unwrap();
         conn
     }
 
@@ -535,5 +627,78 @@ mod tests {
         ingest_snapshot(&mut conn, &sample_content()).unwrap();
 
         assert_eq!(list_modifier_groups_for_product(&conn, "prod-1").unwrap(), vec![]);
+    }
+
+    fn content_with_tax_config() -> String {
+        r#"{
+            "menu": {
+                "categories": [], "products": [], "variants": [], "prices": [],
+                "taxConfig": [
+                    {
+                        "orderType": "dine_in",
+                        "pricingMode": "exclusive",
+                        "taxRateBasisPoints": 1000,
+                        "appliedTaxRules": [{"name": "GST", "rateBasisPoints": 1000}],
+                        "serviceChargeRateBasisPoints": 500,
+                        "serviceChargeIsTaxable": false
+                    },
+                    {
+                        "orderType": "takeaway",
+                        "pricingMode": "inclusive",
+                        "taxRateBasisPoints": 1600,
+                        "appliedTaxRules": [],
+                        "serviceChargeRateBasisPoints": null,
+                        "serviceChargeIsTaxable": null
+                    }
+                ]
+            }
+        }"#
+        .to_string()
+    }
+
+    #[test]
+    fn ingests_resolved_tax_config_for_every_order_type_with_its_applied_rules() {
+        let mut conn = test_conn();
+        ingest_snapshot(&mut conn, &content_with_tax_config()).unwrap();
+
+        let dine_in = get_tax_config(&conn, "dine_in").unwrap().unwrap();
+        assert_eq!(dine_in.pricing_mode, "exclusive");
+        assert_eq!(dine_in.tax_rate_basis_points, 1000);
+        assert_eq!(dine_in.applied_tax_rules, vec![AppliedTaxRule { name: "GST".into(), rate_basis_points: 1000 }]);
+        assert_eq!(dine_in.service_charge_rate_basis_points, Some(500));
+        assert_eq!(dine_in.service_charge_is_taxable, Some(false));
+
+        let takeaway = get_tax_config(&conn, "takeaway").unwrap().unwrap();
+        assert_eq!(takeaway.pricing_mode, "inclusive");
+        assert_eq!(takeaway.applied_tax_rules, vec![]);
+        assert_eq!(takeaway.service_charge_rate_basis_points, None);
+    }
+
+    #[test]
+    fn an_order_type_never_synced_returns_none_not_an_error() {
+        let mut conn = test_conn();
+        ingest_snapshot(&mut conn, &content_with_tax_config()).unwrap();
+
+        assert_eq!(get_tax_config(&conn, "delivery").unwrap(), None);
+    }
+
+    #[test]
+    fn a_second_ingest_wholesale_replaces_tax_config_too() {
+        let mut conn = test_conn();
+        ingest_snapshot(&mut conn, &content_with_tax_config()).unwrap();
+
+        let empty = r#"{"menu": {"categories": [], "products": [], "variants": [], "prices": [], "taxConfig": []}}"#;
+        ingest_snapshot(&mut conn, empty).unwrap();
+
+        assert_eq!(get_tax_config(&conn, "dine_in").unwrap(), None);
+    }
+
+    #[test]
+    fn deserializes_a_snapshot_with_no_tax_config_field_at_all_as_empty() {
+        // Backward compatibility: a pre-P2-45-shaped snapshot must still parse.
+        let mut conn = test_conn();
+        ingest_snapshot(&mut conn, &sample_content()).unwrap();
+
+        assert_eq!(get_tax_config(&conn, "dine_in").unwrap(), None);
     }
 }

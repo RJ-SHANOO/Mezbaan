@@ -64,6 +64,7 @@ pub fn run() {
             menu_commands::find_menu_product_by_barcode,
             menu_commands::get_modifier_groups_for_product,
             menu_commands::get_menu_sync_version,
+            menu_commands::get_tax_config,
             printer_commands::print_raw_escpos,
             printer_commands::kick_cash_drawer,
             printer_commands::enqueue_print_job,
