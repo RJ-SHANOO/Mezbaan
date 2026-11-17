@@ -34,9 +34,12 @@ async function renderAt(path: string): Promise<void> {
   // particular lazy chunk) can take more than a few microtasks to settle,
   // so a fixed tick count is flaky — this waits until Suspense's fallback
   // is actually gone, capped so a genuinely broken render still fails fast.
-  for (let attempt = 0; attempt < 50 && container?.textContent === "Loading…"; attempt += 1) {
+  // CI's pinned Node 20 runner resolves a cold import() noticeably slower
+  // than local dev Node — 50 attempts at 0ms was enough locally but flaked
+  // there, so this gives it a much larger real-time budget (still capped).
+  for (let attempt = 0; attempt < 300 && container?.textContent === "Loading…"; attempt += 1) {
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, 5));
     });
   }
 }
