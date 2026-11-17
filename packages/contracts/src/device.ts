@@ -19,6 +19,12 @@ export const DeviceSchema = z.object({
   // Sequential per branch, assigned at creation — the "T2" half of a P1-28
   // document number.
   terminalNumber: z.number().int().positive(),
+  // P2-45: the "B1" half of the same document number — sequential per
+  // restaurant, assigned at branch creation (branches.branchNumber). Needed
+  // here (not just terminalNumber) so an offline terminal can persist both
+  // halves locally and mint P1-28's document numbers without a server
+  // round-trip; previously nothing synced this down at all.
+  branchNumber: z.number().int().positive(),
   lastSeenAt: z.string().nullable(),
   createdAt: z.string(),
 });

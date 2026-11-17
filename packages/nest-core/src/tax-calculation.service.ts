@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { add, calculateExclusiveTax, calculateInclusiveTax, calculateServiceCharge, money, type Money } from "@mezbaan/domain";
+import { computeCharges, money, type Money } from "@mezbaan/domain";
 import { ServiceChargeSettingsService } from "./service-charge-settings.service.js";
 import { TaxRulesService, type AppliedTaxRule } from "./tax-rules.service.js";
 import { TaxSettingsService, type PricingMode } from "./tax-settings.service.js";
@@ -64,39 +64,15 @@ export class TaxCalculationService {
     ]);
 
     const taxRateBasisPoints = appliedTaxRules.reduce((sum, rule) => sum + rule.rateBasisPoints, 0);
-    const serviceCharge = serviceChargeSetting ? calculateServiceCharge(subtotal, serviceChargeSetting.rateBasisPoints) : money(0n, params.currency);
+    const serviceChargeRateBasisPoints = serviceChargeSetting?.rateBasisPoints ?? null;
+    const serviceChargeIsTaxable = serviceChargeSetting?.isTaxable ?? null;
 
-    if (pricingMode === "inclusive") {
-      const breakdown = calculateInclusiveTax(subtotal, taxRateBasisPoints);
-      return {
-        pricingMode,
-        appliedTaxRules,
-        taxRateBasisPoints,
-        serviceChargeRateBasisPoints: serviceChargeSetting?.rateBasisPoints ?? null,
-        serviceChargeIsTaxable: serviceChargeSetting?.isTaxable ?? null,
-        subtotal,
-        serviceCharge,
-        taxBase: breakdown.base,
-        tax: breakdown.tax,
-        total: add(breakdown.total, serviceCharge),
-      };
-    }
+    // P2-45: the actual arithmetic lives in packages/domain's computeCharges now —
+    // the offline terminal calls the exact same function with the exact same
+    // config (synced down already-resolved, same pattern as prices), so this
+    // and the offline path can never silently drift apart.
+    const { serviceCharge, taxBase, tax, total } = computeCharges(subtotal, { pricingMode, taxRateBasisPoints, serviceChargeRateBasisPoints, serviceChargeIsTaxable });
 
-    const taxableBase = serviceChargeSetting?.isTaxable ? add(subtotal, serviceCharge) : subtotal;
-    const breakdown = calculateExclusiveTax(taxableBase, taxRateBasisPoints);
-    const total = serviceChargeSetting?.isTaxable ? breakdown.total : add(breakdown.total, serviceCharge);
-
-    return {
-      pricingMode,
-      appliedTaxRules,
-      taxRateBasisPoints,
-      serviceChargeRateBasisPoints: serviceChargeSetting?.rateBasisPoints ?? null,
-      serviceChargeIsTaxable: serviceChargeSetting?.isTaxable ?? null,
-      subtotal,
-      serviceCharge,
-      taxBase: breakdown.base,
-      tax: breakdown.tax,
-      total,
-    };
+    return { pricingMode, appliedTaxRules, taxRateBasisPoints, serviceChargeRateBasisPoints, serviceChargeIsTaxable, subtotal, serviceCharge, taxBase, tax, total };
   }
 }

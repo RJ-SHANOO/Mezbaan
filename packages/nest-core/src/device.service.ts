@@ -12,6 +12,9 @@ export interface DeviceRecord {
   label: string;
   deviceType: "pos_terminal" | "kitchen_display" | "tablet" | "other";
   terminalNumber: number;
+  // P2-45: joined from branches.branchNumber, not a devices column itself —
+  // see DeviceService.attachBranchNumber/attachBranchNumbers.
+  branchNumber: number;
   status: "active" | "revoked";
   lastSeenAt: Date | null;
   revokedAt: Date | null;
@@ -69,7 +72,13 @@ export class DeviceService {
   ) {}
 
   async list(restaurantId: string): Promise<DeviceRecord[]> {
-    return withTenant(this.db, { restaurantId }, (tx) => tx.select().from(schema.devices));
+    return withTenant(this.db, { restaurantId }, async (tx) => {
+      const rows = await tx
+        .select({ device: schema.devices, branchNumber: schema.branches.branchNumber })
+        .from(schema.devices)
+        .innerJoin(schema.branches, eq(schema.devices.branchId, schema.branches.id));
+      return rows.map(({ device, branchNumber }) => ({ ...device, branchNumber }));
+    });
   }
 
   /** P2-36: every active device's id + token hash for one branch — what a
@@ -109,8 +118,18 @@ export class DeviceService {
         },
         tx,
       );
-      return device;
+      return this.attachBranchNumber(tx, device);
     });
+  }
+
+  /** P2-45: a single extra indexed lookup — fine for the single-device methods
+   * below (list() above uses a real join instead, since N devices would mean
+   * N extra round trips here). */
+  private async attachBranchNumber(tx: Database, device: typeof schema.devices.$inferSelect): Promise<DeviceRecord> {
+    const branchRows = await tx.select({ branchNumber: schema.branches.branchNumber }).from(schema.branches).where(eq(schema.branches.id, device.branchId));
+    const branchNumber = branchRows[0]?.branchNumber;
+    if (branchNumber === undefined) throw new Error(`attachBranchNumber: device ${device.id}'s branch ${device.branchId} disappeared`);
+    return { ...device, branchNumber };
   }
 
   /** Regenerating overwrites any previous unredeemed code for the same device —
@@ -180,7 +199,7 @@ export class DeviceService {
         },
         tx,
       );
-      return { deviceToken, device };
+      return { deviceToken, device: await this.attachBranchNumber(tx, device) };
     });
   }
 
@@ -200,7 +219,7 @@ export class DeviceService {
         .returning();
       const device = rows[0];
       if (!device) throw new UnauthorizedException(INVALID_DEVICE_TOKEN);
-      return device;
+      return this.attachBranchNumber(tx, device);
     });
   }
 
@@ -229,7 +248,7 @@ export class DeviceService {
         },
         tx,
       );
-      return device;
+      return this.attachBranchNumber(tx, device);
     });
   }
 }

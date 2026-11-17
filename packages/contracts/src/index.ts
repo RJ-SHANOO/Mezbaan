@@ -89,6 +89,8 @@ export {
   type SnapshotMenuPrice,
   SnapshotMenuSchema,
   type SnapshotMenu,
+  SnapshotTaxConfigSchema,
+  type SnapshotTaxConfig,
   SnapshotContentSchema,
   type SnapshotContent,
   SyncSnapshotResponseSchema,

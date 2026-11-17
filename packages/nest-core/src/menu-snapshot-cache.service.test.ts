@@ -27,7 +27,7 @@ afterAll(() => {
 });
 
 function sampleMenu(label: string): SnapshotMenu {
-  return { branchId: `branch-${label}`, categories: [], products: [], variants: [], prices: [], modifierGroups: [], modifierOptions: [], productModifierGroups: [] };
+  return { branchId: `branch-${label}`, categories: [], products: [], variants: [], prices: [], modifierGroups: [], modifierOptions: [], productModifierGroups: [], taxConfig: [] };
 }
 
 describe("MenuSnapshotCacheService — against a real Redis (requires it running, same assumption this project's DB-backed tests already make for Postgres)", () => {

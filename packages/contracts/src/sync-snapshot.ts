@@ -121,6 +121,31 @@ export const SnapshotProductModifierGroupSchema = z.object({
 });
 export type SnapshotProductModifierGroup = z.infer<typeof SnapshotProductModifierGroupSchema>;
 
+export const SnapshotAppliedTaxRuleSchema = z.object({
+  name: z.string(),
+  rateBasisPoints: z.number().int(),
+});
+export type SnapshotAppliedTaxRule = z.infer<typeof SnapshotAppliedTaxRuleSchema>;
+
+/**
+ * P2-45: one entry per order type, already resolved server-side
+ * (TaxRulesService/TaxSettingsService/ServiceChargeSettingsService, P2-05) —
+ * same "resolve once, sync the result" pattern `prices` above already uses,
+ * so an offline invoice (packages/domain's computeCharges, given this config
+ * plus a subtotal) produces exactly the number the server would have. Rule
+ * 3 only requires the terminal to use what's synced, not to re-implement
+ * rule-matching/resolution logic itself.
+ */
+export const SnapshotTaxConfigSchema = z.object({
+  orderType: OrderTypeSchema,
+  pricingMode: z.enum(["inclusive", "exclusive"]),
+  taxRateBasisPoints: z.number().int(),
+  appliedTaxRules: z.array(SnapshotAppliedTaxRuleSchema),
+  serviceChargeRateBasisPoints: z.number().int().nullable(),
+  serviceChargeIsTaxable: z.boolean().nullable(),
+});
+export type SnapshotTaxConfig = z.infer<typeof SnapshotTaxConfigSchema>;
+
 export const SnapshotMenuSchema = z.object({
   branchId: z.string().uuid(),
   categories: z.array(SnapshotMenuCategorySchema),
@@ -130,6 +155,7 @@ export const SnapshotMenuSchema = z.object({
   modifierGroups: z.array(SnapshotModifierGroupSchema),
   modifierOptions: z.array(SnapshotModifierOptionSchema),
   productModifierGroups: z.array(SnapshotProductModifierGroupSchema),
+  taxConfig: z.array(SnapshotTaxConfigSchema),
 });
 export type SnapshotMenu = z.infer<typeof SnapshotMenuSchema>;
 

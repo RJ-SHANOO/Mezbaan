@@ -10,6 +10,7 @@ const emptyMenu = {
   modifierGroups: [],
   modifierOptions: [],
   productModifierGroups: [],
+  taxConfig: [],
 };
 
 describe("SnapshotContentSchema", () => {
@@ -54,6 +55,7 @@ describe("SnapshotContentSchema", () => {
       modifierGroups: [],
       modifierOptions: [],
       productModifierGroups: [],
+      taxConfig: [],
     };
     expect(SnapshotContentSchema.parse({ restaurantId: "11111111-1111-1111-8111-111111111111", branches: [], staff: [], menu }).menu).toEqual(menu);
 

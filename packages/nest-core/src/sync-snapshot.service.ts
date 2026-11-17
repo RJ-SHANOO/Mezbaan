@@ -1,11 +1,14 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { eq } from "drizzle-orm";
 import { schema, withTenant, type Database } from "@mezbaan/db";
-import type { OrderType, SnapshotContent, SnapshotMenu, SyncSnapshotResponse } from "@mezbaan/contracts";
+import type { OrderType, SnapshotContent, SnapshotMenu, SnapshotTaxConfig, SyncSnapshotResponse } from "@mezbaan/contracts";
 import { DATABASE } from "./db.module.js";
 import { MenuSnapshotCacheService } from "./menu-snapshot-cache.service.js";
 import { PriceResolutionService } from "./price-resolution.service.js";
+import { ServiceChargeSettingsService } from "./service-charge-settings.service.js";
 import { signBytes } from "./snapshot-signing.js";
+import { TaxRulesService } from "./tax-rules.service.js";
+import { TaxSettingsService } from "./tax-settings.service.js";
 
 const ORDER_TYPES: readonly OrderType[] = ["dine_in", "takeaway", "delivery"];
 
@@ -26,6 +29,9 @@ export class SyncSnapshotService {
     @Inject(DATABASE) private readonly db: Database,
     private readonly priceResolutionService: PriceResolutionService,
     private readonly menuSnapshotCacheService: MenuSnapshotCacheService,
+    private readonly taxRulesService: TaxRulesService,
+    private readonly taxSettingsService: TaxSettingsService,
+    private readonly serviceChargeSettingsService: ServiceChargeSettingsService,
   ) {}
 
   async buildSnapshot(restaurantId: string, branchId: string): Promise<SyncSnapshotResponse> {
@@ -224,6 +230,23 @@ export class SyncSnapshotService {
       }
     }
 
-    return { branchId, categories, products, variants, prices, modifierGroups, modifierOptions, productModifierGroups };
+    const taxConfig: SnapshotTaxConfig[] = [];
+    for (const orderType of ORDER_TYPES) {
+      const [pricingMode, appliedTaxRules, serviceChargeSetting] = await Promise.all([
+        this.taxSettingsService.resolvePricingMode(restaurantId, branchId),
+        this.taxRulesService.resolveApplicable({ restaurantId, branchId, orderType }),
+        this.serviceChargeSettingsService.resolveApplicable({ restaurantId, branchId, orderType }),
+      ]);
+      taxConfig.push({
+        orderType,
+        pricingMode,
+        taxRateBasisPoints: appliedTaxRules.reduce((sum, rule) => sum + rule.rateBasisPoints, 0),
+        appliedTaxRules,
+        serviceChargeRateBasisPoints: serviceChargeSetting?.rateBasisPoints ?? null,
+        serviceChargeIsTaxable: serviceChargeSetting?.isTaxable ?? null,
+      });
+    }
+
+    return { branchId, categories, products, variants, prices, modifierGroups, modifierOptions, productModifierGroups, taxConfig };
   }
 }

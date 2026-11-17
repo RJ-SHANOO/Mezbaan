@@ -13,8 +13,11 @@ import { PriceListItemsService } from "./price-list-items.service.js";
 import { PriceListsService } from "./price-lists.service.js";
 import { PriceResolutionService } from "./price-resolution.service.js";
 import { ProductsService } from "./products.service.js";
+import { ServiceChargeSettingsService } from "./service-charge-settings.service.js";
 import { verifyBytes } from "./snapshot-signing.js";
 import { SyncSnapshotService } from "./sync-snapshot.service.js";
+import { TaxRulesService } from "./tax-rules.service.js";
+import { TaxSettingsService } from "./tax-settings.service.js";
 
 const APP_DATABASE_URL =
   process.env.APP_DATABASE_URL ?? "postgres://mezbaan_app:mezbaan_app_dev_password@localhost:5433/mezbaan";
@@ -51,7 +54,7 @@ beforeAll(async () => {
   await redis.connect().catch(() => {});
   const auditLogService = new AuditLogService(db);
   menuSnapshotCacheService = new MenuSnapshotCacheService(redis);
-  service = new SyncSnapshotService(db, new PriceResolutionService(db), menuSnapshotCacheService);
+  service = new SyncSnapshotService(db, new PriceResolutionService(db), menuSnapshotCacheService, new TaxRulesService(db, auditLogService), new TaxSettingsService(db, auditLogService), new ServiceChargeSettingsService(db, auditLogService));
   categoriesService = new CategoriesService(db, auditLogService);
   productsService = new ProductsService(db, auditLogService);
   priceListsService = new PriceListsService(db, auditLogService, menuSnapshotCacheService);
@@ -171,6 +174,41 @@ describe("SyncSnapshotService", () => {
         expect(price.unitPriceMinor).toBe("1500");
         expect(price.priceListId).toBe(priceListId);
         expect(price.priceListVersion).toBe(version);
+      }
+    });
+
+    it("includes resolved tax config for every order type (P2-45)", async () => {
+      const fixture = await createFixture("snapshot-menu-tax-config");
+      const taxRulesService = new TaxRulesService(db, new AuditLogService(db));
+      const serviceChargeSettingsService = new ServiceChargeSettingsService(db, new AuditLogService(db));
+      await taxRulesService.create({ restaurantId: fixture.restaurantId, actorUserId: fixture.ownerUserId, name: "GST", rateBasisPoints: 1500 });
+      await serviceChargeSettingsService.create({ restaurantId: fixture.restaurantId, actorUserId: fixture.ownerUserId, rateBasisPoints: 1000, isTaxable: false });
+
+      const snapshot = await service.buildSnapshot(fixture.restaurantId, fixture.branchId);
+      const menu = parseMenu(snapshot.contentJson);
+
+      expect(menu.taxConfig).toHaveLength(3);
+      for (const config of menu.taxConfig) {
+        expect(config.pricingMode).toBe("exclusive");
+        expect(config.taxRateBasisPoints).toBe(1500);
+        expect(config.appliedTaxRules).toEqual([{ name: "GST", rateBasisPoints: 1500 }]);
+        expect(config.serviceChargeRateBasisPoints).toBe(1000);
+        expect(config.serviceChargeIsTaxable).toBe(false);
+      }
+    });
+
+    it("never includes another restaurant's tax config", async () => {
+      const fixtureA = await createFixture("snapshot-tax-config-a");
+      const fixtureB = await createFixture("snapshot-tax-config-b");
+      const taxRulesService = new TaxRulesService(db, new AuditLogService(db));
+      await taxRulesService.create({ restaurantId: fixtureA.restaurantId, actorUserId: fixtureA.ownerUserId, name: "GST", rateBasisPoints: 2000 });
+
+      const snapshotB = await service.buildSnapshot(fixtureB.restaurantId, fixtureB.branchId);
+      const menuB = parseMenu(snapshotB.contentJson);
+
+      for (const config of menuB.taxConfig) {
+        expect(config.taxRateBasisPoints).toBe(0);
+        expect(config.appliedTaxRules).toEqual([]);
       }
     });
 
