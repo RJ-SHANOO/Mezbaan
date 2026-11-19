@@ -1,8 +1,11 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { schema, withTenant, type Database } from "@mezbaan/db";
 import { AuditLogService } from "./audit-log.service.js";
+import { decodeCursor, seekCondition, toPage, type CursorFields, type Page } from "./cursor-pagination.js";
 import { DATABASE } from "./db.module.js";
+
+const DEFAULT_LIST_LIMIT = 20;
 
 export type BusinessDayStatus = "open" | "closed";
 
@@ -115,8 +118,17 @@ export class BusinessDaysService {
     });
   }
 
-  async list(restaurantId: string, branchId: string): Promise<BusinessDayRecord[]> {
-    return withTenant(this.db, { restaurantId }, (tx) => tx.select().from(schema.businessDays).where(eq(schema.businessDays.branchId, branchId)));
+  async list(restaurantId: string, branchId: string, cursor?: string, limit = DEFAULT_LIST_LIMIT): Promise<Page<BusinessDayRecord>> {
+    const after: CursorFields | undefined = cursor !== undefined ? decodeCursor(cursor) : undefined;
+    const rows = await withTenant(this.db, { restaurantId }, (tx) =>
+      tx
+        .select()
+        .from(schema.businessDays)
+        .where(and(eq(schema.businessDays.branchId, branchId), seekCondition(schema.businessDays.createdAt, schema.businessDays.id, after)))
+        .orderBy(desc(schema.businessDays.createdAt), desc(schema.businessDays.id))
+        .limit(limit + 1),
+    );
+    return toPage(rows, limit, (row) => ({ createdAt: row.createdAt, id: row.id }));
   }
 
   private async requireBranch(tx: Database, branchId: string): Promise<{ timezone: string }> {

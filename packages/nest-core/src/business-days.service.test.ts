@@ -145,3 +145,34 @@ describe("OrdersService.create business-day gate (P2-30 integration)", () => {
     expect(order.status).toBe("open");
   });
 });
+
+describe("BusinessDaysService.list", () => {
+  it("paginates closed business days newest-first with a cursor, with no gaps or duplicates across pages", async () => {
+    const tenant = await createRestaurant("bizday-list-pagination");
+    const branchId = await createBranch(tenant.restaurantId);
+
+    const dates = ["2026-01-01", "2026-01-02", "2026-01-03", "2026-01-04", "2026-01-05"];
+    const created: string[] = [];
+    for (const businessDate of dates) {
+      const day = await service.close({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, branchId, businessDate });
+      created.push(day.id);
+    }
+    const newestFirst = [...created].reverse();
+
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    for (let i = 0; i < 3; i++) {
+      const page = await service.list(tenant.restaurantId, branchId, cursor, 2);
+      seen.push(...page.items.map((d) => d.id));
+      cursor = page.nextCursor ?? undefined;
+      if (!page.nextCursor) break;
+    }
+    expect(seen).toEqual(newestFirst);
+  });
+
+  it("rejects a malformed pagination cursor", async () => {
+    const tenant = await createRestaurant("bizday-list-bad-cursor");
+    const branchId = await createBranch(tenant.restaurantId);
+    await expect(service.list(tenant.restaurantId, branchId, "not-a-real-cursor")).rejects.toThrow(BadRequestException);
+  });
+});

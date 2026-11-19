@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { pageResponseSchema } from "./pagination.js";
 
 const MINOR_UNITS_PATTERN = /^-?\d+$/;
 const MinorUnitsSchema = z.string().regex(MINOR_UNITS_PATTERN, "must be an integer string");
@@ -63,3 +64,12 @@ export const CreditLedgerEntrySchema = z.object({
   createdAt: z.string(),
 });
 export type CreditLedgerEntry = z.infer<typeof CreditLedgerEntrySchema>;
+
+export const ListCreditLedgerQuerySchema = z.object({
+  cursor: z.string().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+});
+export type ListCreditLedgerQuery = z.infer<typeof ListCreditLedgerQuerySchema>;
+
+export const CreditLedgerEntryPageSchema = pageResponseSchema(CreditLedgerEntrySchema);
+export type CreditLedgerEntryPage = z.infer<typeof CreditLedgerEntryPageSchema>;

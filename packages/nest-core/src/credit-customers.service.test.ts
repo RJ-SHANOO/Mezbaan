@@ -137,3 +137,33 @@ describe("CreditCustomersService tenant isolation", () => {
     await expect(service.getBalance({ restaurantId: tenant.restaurantId, creditCustomerId: randomUUID() })).rejects.toThrow(NotFoundException);
   });
 });
+
+describe("CreditCustomersService.listLedger", () => {
+  it("paginates ledger entries newest-first with a cursor, with no gaps or duplicates across pages", async () => {
+    const tenant = await createRestaurant("credit-ledger-pagination");
+    const customer = await service.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, name: "Acme Corp", creditLimitMinor: 100_000n, currency: "PKR" });
+
+    const created: string[] = [];
+    for (let i = 0; i < 5; i++) {
+      const entry = await service.chargeInvoice({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, creditCustomerId: customer.id, amountMinor: 1_000n });
+      created.push(entry.id);
+    }
+    const newestFirst = [...created].reverse();
+
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    for (let i = 0; i < 3; i++) {
+      const page = await service.listLedger({ restaurantId: tenant.restaurantId, creditCustomerId: customer.id, cursor, limit: 2 });
+      seen.push(...page.items.map((e) => e.id));
+      cursor = page.nextCursor ?? undefined;
+      if (!page.nextCursor) break;
+    }
+    expect(seen).toEqual(newestFirst);
+  });
+
+  it("rejects a malformed pagination cursor", async () => {
+    const tenant = await createRestaurant("credit-ledger-bad-cursor");
+    const customer = await service.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, name: "Acme Corp", currency: "PKR" });
+    await expect(service.listLedger({ restaurantId: tenant.restaurantId, creditCustomerId: customer.id, cursor: "not-a-real-cursor" })).rejects.toThrow(BadRequestException);
+  });
+});

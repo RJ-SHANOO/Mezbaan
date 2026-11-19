@@ -2,6 +2,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import { and, desc, eq } from "drizzle-orm";
 import { schema, withTenant, type Database } from "@mezbaan/db";
 import { attachModifiersTo } from "./invoices.service.js";
+import { decodeCursor, seekCondition, toPage, type CursorFields, type Page } from "./cursor-pagination.js";
 import { DATABASE } from "./db.module.js";
 import { computeOrderTotal } from "./orders.service.js";
 import { TaxCalculationService } from "./tax-calculation.service.js";
@@ -28,6 +29,7 @@ export interface ListFlagsParams {
   restaurantId: string;
   branchId?: string;
   limit?: number;
+  cursor?: string;
 }
 
 const DEFAULT_LIST_LIMIT = 50;
@@ -119,15 +121,22 @@ export class ReconciliationService {
     });
   }
 
-  async listFlags(params: ListFlagsParams): Promise<ReconciliationFlagRecord[]> {
+  async listFlags(params: ListFlagsParams): Promise<Page<ReconciliationFlagRecord>> {
     const limit = Math.min(params.limit ?? DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT);
-    return withTenant(this.db, { restaurantId: params.restaurantId }, (tx) =>
+    const after: CursorFields | undefined = params.cursor !== undefined ? decodeCursor(params.cursor) : undefined;
+    const rows = await withTenant(this.db, { restaurantId: params.restaurantId }, (tx) =>
       tx
         .select()
         .from(schema.invoiceReconciliationFlags)
-        .where(params.branchId ? and(eq(schema.invoiceReconciliationFlags.branchId, params.branchId)) : undefined)
-        .orderBy(desc(schema.invoiceReconciliationFlags.createdAt))
-        .limit(limit),
+        .where(
+          and(
+            params.branchId !== undefined ? eq(schema.invoiceReconciliationFlags.branchId, params.branchId) : undefined,
+            seekCondition(schema.invoiceReconciliationFlags.createdAt, schema.invoiceReconciliationFlags.id, after),
+          ),
+        )
+        .orderBy(desc(schema.invoiceReconciliationFlags.createdAt), desc(schema.invoiceReconciliationFlags.id))
+        .limit(limit + 1),
     );
+    return toPage(rows, limit, (row) => ({ createdAt: row.createdAt, id: row.id }));
   }
 }

@@ -1,6 +1,14 @@
-import { Body, Controller, Get, Param, Post, UnauthorizedException } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Query, UnauthorizedException } from "@nestjs/common";
 import { z } from "zod";
-import { ChargeCreditSchema, RecordRepaymentSchema, type CreditBalance, type CreditCustomer, type CreditLedgerEntry } from "@mezbaan/contracts";
+import {
+  ChargeCreditSchema,
+  ListCreditLedgerQuerySchema,
+  RecordRepaymentSchema,
+  type CreditBalance,
+  type CreditCustomer,
+  type CreditLedgerEntry,
+  type CreditLedgerEntryPage,
+} from "@mezbaan/contracts";
 import { getTenantContext } from "./tenant-context.js";
 import { RequirePermission } from "./permission.decorator.js";
 import { CreditCustomersService, type CreditBalance as CreditBalanceRecord, type CreditCustomerRecord, type CreditLedgerEntryRecord } from "./credit-customers.service.js";
@@ -72,11 +80,12 @@ export class CreditAccountController {
 
   @Get("ledger")
   @RequirePermission("pos.sell")
-  async listLedger(@Param() params: unknown): Promise<CreditLedgerEntry[]> {
+  async listLedger(@Param() params: unknown, @Query() query: unknown): Promise<CreditLedgerEntryPage> {
     const tenant = requireTenant();
     const { id } = parseOrBadRequest(CustomerIdParamSchema, params);
-    const entries = await this.creditCustomersService.listLedger({ restaurantId: tenant.restaurantId, creditCustomerId: id });
-    return entries.map(toEntryResponse);
+    const request = parseOrBadRequest(ListCreditLedgerQuerySchema, query);
+    const page = await this.creditCustomersService.listLedger({ restaurantId: tenant.restaurantId, creditCustomerId: id, cursor: request.cursor, limit: request.limit });
+    return { items: page.items.map(toEntryResponse), nextCursor: page.nextCursor };
   }
 
   @Post("charges")

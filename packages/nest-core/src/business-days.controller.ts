@@ -1,12 +1,16 @@
 import { Body, Controller, Get, Post, Query, UnauthorizedException } from "@nestjs/common";
-import { z } from "zod";
-import { BusinessDayStatusQuerySchema, CloseBusinessDaySchema, type BusinessDay, type BusinessDayStatusResponse } from "@mezbaan/contracts";
+import {
+  BusinessDayStatusQuerySchema,
+  CloseBusinessDaySchema,
+  ListBusinessDaysQuerySchema,
+  type BusinessDay,
+  type BusinessDayPage,
+  type BusinessDayStatusResponse,
+} from "@mezbaan/contracts";
 import { getTenantContext } from "./tenant-context.js";
 import { RequirePermission } from "./permission.decorator.js";
 import { BusinessDaysService, type BusinessDayRecord } from "./business-days.service.js";
 import { parseOrBadRequest } from "./validation.js";
-
-const BranchQuerySchema = z.object({ branchId: z.string().uuid() });
 
 function toBusinessDayResponse(row: BusinessDayRecord): BusinessDay {
   return {
@@ -49,11 +53,11 @@ export class BusinessDaysController {
 
   @Get()
   @RequirePermission("business_day.manage")
-  async list(@Query() query: unknown): Promise<BusinessDay[]> {
+  async list(@Query() query: unknown): Promise<BusinessDayPage> {
     const tenant = requireTenant();
-    const { branchId } = parseOrBadRequest(BranchQuerySchema, query);
-    const days = await this.businessDaysService.list(tenant.restaurantId, branchId);
-    return days.map(toBusinessDayResponse);
+    const request = parseOrBadRequest(ListBusinessDaysQuerySchema, query);
+    const page = await this.businessDaysService.list(tenant.restaurantId, request.branchId, request.cursor, request.limit);
+    return { items: page.items.map(toBusinessDayResponse), nextCursor: page.nextCursor };
   }
 }
 

@@ -1,13 +1,12 @@
 import { Body, Controller, Get, Param, Post, Query, UnauthorizedException } from "@nestjs/common";
 import { z } from "zod";
-import { CloseShiftSchema, OpenShiftSchema, type Shift } from "@mezbaan/contracts";
+import { CloseShiftSchema, ListShiftsQuerySchema, OpenShiftSchema, type Shift, type ShiftPage } from "@mezbaan/contracts";
 import { getTenantContext } from "./tenant-context.js";
 import { RequirePermission } from "./permission.decorator.js";
 import { ShiftsService, type ShiftRecord } from "./shifts.service.js";
 import { parseOrBadRequest } from "./validation.js";
 
 const ShiftIdParamSchema = z.object({ id: z.string().uuid() });
-const BranchQuerySchema = z.object({ branchId: z.string().uuid() });
 const DeviceQuerySchema = z.object({ deviceId: z.string().uuid() });
 
 function toShiftResponse(row: ShiftRecord): Shift {
@@ -67,11 +66,11 @@ export class ShiftsController {
 
   @Get()
   @RequirePermission("pos.sell")
-  async list(@Query() query: unknown): Promise<Shift[]> {
+  async list(@Query() query: unknown): Promise<ShiftPage> {
     const tenant = requireTenant();
-    const { branchId } = parseOrBadRequest(BranchQuerySchema, query);
-    const shifts = await this.shiftsService.listForBranch(tenant.restaurantId, branchId);
-    return shifts.map(toShiftResponse);
+    const request = parseOrBadRequest(ListShiftsQuerySchema, query);
+    const page = await this.shiftsService.listForBranch(tenant.restaurantId, request.branchId, request.cursor, request.limit);
+    return { items: page.items.map(toShiftResponse), nextCursor: page.nextCursor };
   }
 
   @Get(":id")

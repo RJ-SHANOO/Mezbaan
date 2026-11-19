@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { CurrencyCodeSchema } from "./currency.js";
 import { OrderItemSchema } from "./order-items.js";
+import { pageResponseSchema } from "./pagination.js";
 import { OrderTypeSchema } from "./price-lists.js";
 
 const MINOR_UNITS_PATTERN = /^-?\d+$/;
@@ -25,6 +26,8 @@ export type CreateOrder = z.infer<typeof CreateOrderSchema>;
 export const ListOrdersQuerySchema = z.object({
   branchId: z.string().uuid().optional(),
   status: OrderStatusSchema.optional(),
+  cursor: z.string().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
 });
 export type ListOrdersQuery = z.infer<typeof ListOrdersQuerySchema>;
 
@@ -74,6 +77,9 @@ export const OrderSchema = z.object({
   closedAt: z.string().nullable(),
 });
 export type Order = z.infer<typeof OrderSchema>;
+
+export const OrderPageSchema = pageResponseSchema(OrderSchema);
+export type OrderPage = z.infer<typeof OrderPageSchema>;
 
 export const OrderStatusHistoryEntrySchema = z.object({
   id: z.string().uuid(),

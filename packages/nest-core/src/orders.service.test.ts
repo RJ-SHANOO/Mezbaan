@@ -216,10 +216,38 @@ describe("OrdersService", () => {
     await service.close({ restaurantId: tenant.restaurantId, orderId: openOrder.id, actorUserId: tenant.ownerUserId });
 
     const branchAOrders = await service.list({ restaurantId: tenant.restaurantId, branchId: branchA });
-    expect(branchAOrders.map((o) => o.id)).toEqual([openOrder.id]);
+    expect(branchAOrders.items.map((o) => o.id)).toEqual([openOrder.id]);
 
     const closedOrders = await service.list({ restaurantId: tenant.restaurantId, status: "closed" });
-    expect(closedOrders.map((o) => o.id)).toContain(openOrder.id);
+    expect(closedOrders.items.map((o) => o.id)).toContain(openOrder.id);
+  });
+
+  it("paginates orders newest-first with a cursor, with no gaps or duplicates across pages", async () => {
+    const tenant = await createRestaurant("order-list-pagination");
+    const branchId = await createBranch(tenant.restaurantId);
+    const created: string[] = [];
+    for (let i = 0; i < 5; i++) {
+      const order = await service.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, branchId, orderType: "takeaway", currency: "PKR" });
+      created.push(order.id);
+    }
+    const newestFirst = [...created].reverse();
+
+    const firstPage = await service.list({ restaurantId: tenant.restaurantId, branchId, limit: 2 });
+    expect(firstPage.items.map((o) => o.id)).toEqual(newestFirst.slice(0, 2));
+    expect(firstPage.nextCursor).not.toBeNull();
+
+    const secondPage = await service.list({ restaurantId: tenant.restaurantId, branchId, limit: 2, cursor: firstPage.nextCursor! });
+    expect(secondPage.items.map((o) => o.id)).toEqual(newestFirst.slice(2, 4));
+    expect(secondPage.nextCursor).not.toBeNull();
+
+    const thirdPage = await service.list({ restaurantId: tenant.restaurantId, branchId, limit: 2, cursor: secondPage.nextCursor! });
+    expect(thirdPage.items.map((o) => o.id)).toEqual(newestFirst.slice(4, 5));
+    expect(thirdPage.nextCursor).toBeNull();
+  });
+
+  it("rejects a malformed pagination cursor", async () => {
+    const tenant = await createRestaurant("order-list-bad-cursor");
+    await expect(service.list({ restaurantId: tenant.restaurantId, cursor: "not-a-real-cursor" })).rejects.toThrow(BadRequestException);
   });
 
   it("records status history on open and close, in order", async () => {
@@ -479,7 +507,7 @@ describe("OrdersService", () => {
       // The table-occupancy index is the real guard — confirm it actually left
       // exactly one open order behind, not (impossibly) zero or two.
       const openOrders = await service.list({ restaurantId: tenant.restaurantId, branchId, status: "open" });
-      expect(openOrders.filter((o) => o.tableId === tableId)).toHaveLength(1);
+      expect(openOrders.items.filter((o) => o.tableId === tableId)).toHaveLength(1);
     });
 
     it("two terminals transitioning the same order at once: the loser sees the real outcome, not stale data", async () => {

@@ -173,3 +173,35 @@ describe("ShiftsService.close", () => {
     ).rejects.toThrow(NotFoundException);
   });
 });
+
+describe("ShiftsService.listForBranch", () => {
+  it("paginates shifts newest-first with a cursor, with no gaps or duplicates across pages", async () => {
+    const tenant = await createRestaurant("shift-list-pagination");
+    const branchId = await createBranch(tenant.restaurantId);
+    const device = await deviceService.create({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, branchId, label: "Till 1", deviceType: "pos_terminal" });
+
+    const created: string[] = [];
+    for (let i = 0; i < 5; i++) {
+      const shift = await service.open({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, deviceId: device.id, openingFloatMinor: 5_000n, currency: "PKR" });
+      created.push(shift.id);
+      await service.close({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, shiftId: shift.id, denominationCounts: [{ denominationMinor: 1_000n, count: 5 }] });
+    }
+    const newestFirst = [...created].reverse();
+
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    for (let i = 0; i < 3; i++) {
+      const page = await service.listForBranch(tenant.restaurantId, branchId, cursor, 2);
+      seen.push(...page.items.map((s) => s.id));
+      cursor = page.nextCursor ?? undefined;
+      if (!page.nextCursor) break;
+    }
+    expect(seen).toEqual(newestFirst);
+  });
+
+  it("rejects a malformed pagination cursor", async () => {
+    const tenant = await createRestaurant("shift-list-bad-cursor");
+    const branchId = await createBranch(tenant.restaurantId);
+    await expect(service.listForBranch(tenant.restaurantId, branchId, "not-a-real-cursor")).rejects.toThrow(BadRequestException);
+  });
+});

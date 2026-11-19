@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { BadRequestException } from "@nestjs/common";
 import { eq } from "drizzle-orm";
 import { createDb, createPool, schema, withTenant, type Database } from "@mezbaan/db";
 import type { Pool } from "pg";
@@ -290,15 +291,16 @@ describe("ReconciliationService.listFlags", () => {
     const invoiceB = await flaggedInvoiceId(branchB, deviceB);
 
     const allFlags = await service.listFlags({ restaurantId: tenant.restaurantId });
-    const allIds = allFlags.map((flag) => flag.invoiceId);
+    const allIds = allFlags.items.map((flag) => flag.invoiceId);
     expect(allIds).toContain(invoiceA);
     expect(allIds).toContain(invoiceB);
 
     const branchAFlags = await service.listFlags({ restaurantId: tenant.restaurantId, branchId: branchA });
-    expect(branchAFlags.map((flag) => flag.invoiceId)).toEqual([invoiceA]);
+    expect(branchAFlags.items.map((flag) => flag.invoiceId)).toEqual([invoiceA]);
 
     const limited = await service.listFlags({ restaurantId: tenant.restaurantId, limit: 1 });
-    expect(limited).toHaveLength(1);
+    expect(limited.items).toHaveLength(1);
+    expect(limited.nextCursor).not.toBeNull();
   });
 
   it("never returns another tenant's flags", async () => {
@@ -325,6 +327,11 @@ describe("ReconciliationService.listFlags", () => {
     await service.reconcileInvoice({ restaurantId: tenantA.restaurantId, invoiceId: invoice.id });
 
     const tenantBFlags = await service.listFlags({ restaurantId: tenantB.restaurantId });
-    expect(tenantBFlags.map((flag) => flag.invoiceId)).not.toContain(invoice.id);
+    expect(tenantBFlags.items.map((flag) => flag.invoiceId)).not.toContain(invoice.id);
+  });
+
+  it("rejects a malformed pagination cursor", async () => {
+    const tenant = await createRestaurant("reconciliation-bad-cursor");
+    await expect(service.listFlags({ restaurantId: tenant.restaurantId, cursor: "not-a-real-cursor" })).rejects.toThrow(BadRequestException);
   });
 });

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { pageResponseSchema } from "./pagination.js";
 
 const MINOR_UNITS_PATTERN = /^-?\d+$/;
 const MinorUnitsSchema = z.string().regex(MINOR_UNITS_PATTERN, "must be an integer string");
@@ -43,3 +44,13 @@ export const ShiftSchema = z.object({
   closingNote: z.string().nullable(),
 });
 export type Shift = z.infer<typeof ShiftSchema>;
+
+export const ListShiftsQuerySchema = z.object({
+  branchId: z.string().uuid(),
+  cursor: z.string().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+});
+export type ListShiftsQuery = z.infer<typeof ListShiftsQuerySchema>;
+
+export const ShiftPageSchema = pageResponseSchema(ShiftSchema);
+export type ShiftPage = z.infer<typeof ShiftPageSchema>;

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { pageResponseSchema } from "./pagination.js";
 
 export const BusinessDayStatusSchema = z.enum(["open", "closed"]);
 export type BusinessDayStatus = z.infer<typeof BusinessDayStatusSchema>;
@@ -34,3 +35,13 @@ export const BusinessDayStatusResponseSchema = z.object({
   status: BusinessDayStatusSchema,
 });
 export type BusinessDayStatusResponse = z.infer<typeof BusinessDayStatusResponseSchema>;
+
+export const ListBusinessDaysQuerySchema = z.object({
+  branchId: z.string().uuid(),
+  cursor: z.string().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+});
+export type ListBusinessDaysQuery = z.infer<typeof ListBusinessDaysQuerySchema>;
+
+export const BusinessDayPageSchema = pageResponseSchema(BusinessDaySchema);
+export type BusinessDayPage = z.infer<typeof BusinessDayPageSchema>;

@@ -15,6 +15,7 @@ import {
 } from "@mezbaan/domain";
 import { AuditLogService } from "./audit-log.service.js";
 import { BusinessDaysService } from "./business-days.service.js";
+import { decodeCursor, seekCondition, toPage, type CursorFields, type Page } from "./cursor-pagination.js";
 import { DATABASE } from "./db.module.js";
 import { OrderItemsService, type OrderItemRecord } from "./order-items.service.js";
 import { isUniqueViolation } from "./pg-error.js";
@@ -61,10 +62,14 @@ export interface CreateOrderParams {
   asOfBusinessDate?: string;
 }
 
+const DEFAULT_LIST_LIMIT = 20;
+
 export interface ListOrdersParams {
   restaurantId: string;
   branchId?: string;
   status?: OrderStatus;
+  cursor?: string;
+  limit?: number;
 }
 
 export interface OrderActionParams {
@@ -148,8 +153,10 @@ export class OrdersService {
     @Optional() private readonly businessDaysService?: BusinessDaysService,
   ) {}
 
-  async list(params: ListOrdersParams): Promise<OrderRecord[]> {
-    return withTenant(this.db, { restaurantId: params.restaurantId }, (tx) =>
+  async list(params: ListOrdersParams): Promise<Page<OrderRecord>> {
+    const limit = params.limit ?? DEFAULT_LIST_LIMIT;
+    const after: CursorFields | undefined = params.cursor !== undefined ? decodeCursor(params.cursor) : undefined;
+    const rows = await withTenant(this.db, { restaurantId: params.restaurantId }, (tx) =>
       tx
         .select()
         .from(schema.orders)
@@ -157,10 +164,13 @@ export class OrdersService {
           and(
             params.branchId !== undefined ? eq(schema.orders.branchId, params.branchId) : undefined,
             params.status !== undefined ? eq(schema.orders.status, params.status) : undefined,
+            seekCondition(schema.orders.createdAt, schema.orders.id, after),
           ),
         )
-        .orderBy(desc(schema.orders.createdAt)),
+        .orderBy(desc(schema.orders.createdAt), desc(schema.orders.id))
+        .limit(limit + 1),
     );
+    return toPage(rows, limit, (row) => ({ createdAt: row.createdAt, id: row.id }));
   }
 
   async create(params: CreateOrderParams): Promise<OrderRecord> {

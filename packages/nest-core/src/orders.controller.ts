@@ -10,6 +10,7 @@ import {
   TransferOrderSchema,
   type MergeOrderResult,
   type Order,
+  type OrderPage,
   type OrderStatusHistoryEntry,
   type OrderTab,
   type SplitOrderResult,
@@ -84,11 +85,17 @@ export class OrdersController {
 
   @Get()
   @RequirePermission("pos.sell")
-  async list(@Query() query: unknown): Promise<Order[]> {
+  async list(@Query() query: unknown): Promise<OrderPage> {
     const tenant = requireTenant();
     const request = parseOrBadRequest(ListOrdersQuerySchema, query);
-    const orders = await this.ordersService.list({ restaurantId: tenant.restaurantId, branchId: request.branchId, status: request.status });
-    return orders.map(toOrderResponse);
+    const page = await this.ordersService.list({
+      restaurantId: tenant.restaurantId,
+      branchId: request.branchId,
+      status: request.status,
+      cursor: request.cursor,
+      limit: request.limit,
+    });
+    return { items: page.items.map(toOrderResponse), nextCursor: page.nextCursor };
   }
 
   @Post()

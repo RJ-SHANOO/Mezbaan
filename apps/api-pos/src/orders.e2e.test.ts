@@ -249,7 +249,7 @@ describe("orders — tenant isolation and workflow (api-pos)", () => {
     const orderId = create.json<{ id: string }>().id;
 
     const listByB = await app.inject({ method: "GET", url: "/orders", headers: { authorization: `Bearer ${tenantB.accessToken}` } });
-    expect(listByB.json<unknown[]>()).toEqual([]);
+    expect(listByB.json<{ items: unknown[]; nextCursor: string | null }>()).toEqual({ items: [], nextCursor: null });
 
     const closeByB = await app.inject({ method: "POST", url: `/orders/${orderId}/close`, headers: { authorization: `Bearer ${tenantB.accessToken}` } });
     expect(closeByB.statusCode).toBe(404);

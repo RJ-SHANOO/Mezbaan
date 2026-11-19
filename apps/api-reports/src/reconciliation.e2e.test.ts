@@ -146,8 +146,8 @@ describe("reconciliation flags (api-reports, P2-26)", () => {
 
     const response = await app.inject({ method: "GET", url: "/reconciliation-flags", headers: { authorization: `Bearer ${tenant.accessToken}` } });
     expect(response.statusCode).toBe(200);
-    const flags = response.json<Array<{ invoiceId: string; storedSubtotalMinor: string; expectedSubtotalMinor: string; mismatchedFields: string[] }>>();
-    const flag = flags.find((f) => f.invoiceId === invoiceId);
+    const page = response.json<{ items: Array<{ invoiceId: string; storedSubtotalMinor: string; expectedSubtotalMinor: string; mismatchedFields: string[] }>; nextCursor: string | null }>();
+    const flag = page.items.find((f) => f.invoiceId === invoiceId);
     expect(flag).toBeDefined();
     expect(flag!.storedSubtotalMinor).toBe("10000");
     expect(flag!.expectedSubtotalMinor).toBe("12000");
@@ -161,8 +161,8 @@ describe("reconciliation flags (api-reports, P2-26)", () => {
 
     const response = await app.inject({ method: "GET", url: "/reconciliation-flags", headers: { authorization: `Bearer ${tenantB.accessToken}` } });
     expect(response.statusCode).toBe(200);
-    const flags = response.json<Array<{ invoiceId: string }>>();
-    expect(flags.map((f) => f.invoiceId)).not.toContain(invoiceId);
+    const page = response.json<{ items: Array<{ invoiceId: string }>; nextCursor: string | null }>();
+    expect(page.items.map((f) => f.invoiceId)).not.toContain(invoiceId);
   });
 
   it("filters by branchId", async () => {
@@ -173,9 +173,9 @@ describe("reconciliation flags (api-reports, P2-26)", () => {
     );
 
     const matching = await app.inject({ method: "GET", url: `/reconciliation-flags?branchId=${tenant.branchId}`, headers: { authorization: `Bearer ${tenant.accessToken}` } });
-    expect(matching.json<Array<{ invoiceId: string }>>().map((f) => f.invoiceId)).toContain(invoiceId);
+    expect(matching.json<{ items: Array<{ invoiceId: string }>; nextCursor: string | null }>().items.map((f) => f.invoiceId)).toContain(invoiceId);
 
     const nonMatching = await app.inject({ method: "GET", url: `/reconciliation-flags?branchId=${otherBranch[0]!.id}`, headers: { authorization: `Bearer ${tenant.accessToken}` } });
-    expect(nonMatching.json<Array<{ invoiceId: string }>>().map((f) => f.invoiceId)).not.toContain(invoiceId);
+    expect(nonMatching.json<{ items: Array<{ invoiceId: string }>; nextCursor: string | null }>().items.map((f) => f.invoiceId)).not.toContain(invoiceId);
   });
 });

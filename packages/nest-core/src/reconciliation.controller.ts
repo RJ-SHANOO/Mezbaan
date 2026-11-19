@@ -1,5 +1,5 @@
 import { Controller, Get, Query, UnauthorizedException } from "@nestjs/common";
-import { ListReconciliationFlagsQuerySchema, type ReconciliationFlag } from "@mezbaan/contracts";
+import { ListReconciliationFlagsQuerySchema, type ReconciliationFlagPage } from "@mezbaan/contracts";
 import { getTenantContext } from "./tenant-context.js";
 import { RequirePermission } from "./permission.decorator.js";
 import { ReconciliationService } from "./reconciliation.service.js";
@@ -15,27 +15,30 @@ export class ReconciliationFlagsController {
 
   @Get()
   @RequirePermission("reports.view")
-  async list(@Query() query: unknown): Promise<ReconciliationFlag[]> {
+  async list(@Query() query: unknown): Promise<ReconciliationFlagPage> {
     const tenant = requireTenant();
-    const { branchId, limit } = parseOrBadRequest(ListReconciliationFlagsQuerySchema, query);
-    const flags = await this.reconciliationService.listFlags({ restaurantId: tenant.restaurantId, branchId, limit });
-    return flags.map((flag) => ({
-      id: flag.id,
-      branchId: flag.branchId,
-      invoiceId: flag.invoiceId,
-      orderId: flag.orderId,
-      storedSubtotalMinor: flag.storedSubtotalMinor.toString(),
-      expectedSubtotalMinor: flag.expectedSubtotalMinor.toString(),
-      storedServiceChargeMinor: flag.storedServiceChargeMinor.toString(),
-      expectedServiceChargeMinor: flag.expectedServiceChargeMinor.toString(),
-      storedTaxMinor: flag.storedTaxMinor.toString(),
-      expectedTaxMinor: flag.expectedTaxMinor.toString(),
-      storedTotalMinor: flag.storedTotalMinor.toString(),
-      expectedTotalMinor: flag.expectedTotalMinor.toString(),
-      mismatchedFields: flag.mismatchedFields.split(","),
-      reviewedAt: flag.reviewedAt ? flag.reviewedAt.toISOString() : null,
-      createdAt: flag.createdAt.toISOString(),
-    }));
+    const { branchId, limit, cursor } = parseOrBadRequest(ListReconciliationFlagsQuerySchema, query);
+    const page = await this.reconciliationService.listFlags({ restaurantId: tenant.restaurantId, branchId, limit, cursor });
+    return {
+      items: page.items.map((flag) => ({
+        id: flag.id,
+        branchId: flag.branchId,
+        invoiceId: flag.invoiceId,
+        orderId: flag.orderId,
+        storedSubtotalMinor: flag.storedSubtotalMinor.toString(),
+        expectedSubtotalMinor: flag.expectedSubtotalMinor.toString(),
+        storedServiceChargeMinor: flag.storedServiceChargeMinor.toString(),
+        expectedServiceChargeMinor: flag.expectedServiceChargeMinor.toString(),
+        storedTaxMinor: flag.storedTaxMinor.toString(),
+        expectedTaxMinor: flag.expectedTaxMinor.toString(),
+        storedTotalMinor: flag.storedTotalMinor.toString(),
+        expectedTotalMinor: flag.expectedTotalMinor.toString(),
+        mismatchedFields: flag.mismatchedFields.split(","),
+        reviewedAt: flag.reviewedAt ? flag.reviewedAt.toISOString() : null,
+        createdAt: flag.createdAt.toISOString(),
+      })),
+      nextCursor: page.nextCursor,
+    };
   }
 }
 

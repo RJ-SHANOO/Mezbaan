@@ -1,8 +1,11 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { schema, withTenant, type Database } from "@mezbaan/db";
 import { AuditLogService } from "./audit-log.service.js";
+import { decodeCursor, seekCondition, toPage, type CursorFields, type Page } from "./cursor-pagination.js";
 import { DATABASE } from "./db.module.js";
+
+const DEFAULT_LIST_LIMIT = 20;
 
 export interface CreditCustomerRecord {
   id: string;
@@ -168,10 +171,18 @@ export class CreditCustomersService {
     });
   }
 
-  async listLedger(params: { restaurantId: string; creditCustomerId: string }): Promise<CreditLedgerEntryRecord[]> {
-    return withTenant(this.db, { restaurantId: params.restaurantId }, (tx) =>
-      tx.select().from(schema.creditLedgerEntries).where(eq(schema.creditLedgerEntries.creditCustomerId, params.creditCustomerId)),
+  async listLedger(params: { restaurantId: string; creditCustomerId: string; cursor?: string; limit?: number }): Promise<Page<CreditLedgerEntryRecord>> {
+    const limit = params.limit ?? DEFAULT_LIST_LIMIT;
+    const after: CursorFields | undefined = params.cursor !== undefined ? decodeCursor(params.cursor) : undefined;
+    const rows = await withTenant(this.db, { restaurantId: params.restaurantId }, (tx) =>
+      tx
+        .select()
+        .from(schema.creditLedgerEntries)
+        .where(and(eq(schema.creditLedgerEntries.creditCustomerId, params.creditCustomerId), seekCondition(schema.creditLedgerEntries.createdAt, schema.creditLedgerEntries.id, after)))
+        .orderBy(desc(schema.creditLedgerEntries.createdAt), desc(schema.creditLedgerEntries.id))
+        .limit(limit + 1),
     );
+    return toPage(rows, limit, (row) => ({ createdAt: row.createdAt, id: row.id }));
   }
 
   async chargeInvoice(params: ChargeCreditParams): Promise<CreditLedgerEntryRecord> {

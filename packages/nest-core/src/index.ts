@@ -23,6 +23,7 @@ export {
 export { hashPassword, verifyPassword } from "./password.js";
 export { generateOpaqueToken, hashOpaqueToken, parseOpaqueTokenRestaurantId } from "./opaque-token.js";
 export { parseOrBadRequest } from "./validation.js";
+export { encodeCursor, decodeCursor, seekCondition, toPage, type CursorFields, type Page } from "./cursor-pagination.js";
 export { DbModule, DATABASE, type DbModuleOptions } from "./db.module.js";
 export {
   AuthService,

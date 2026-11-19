@@ -1,9 +1,12 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { money, multiply, sum } from "@mezbaan/domain";
-import { eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { schema, withTenant, type Database } from "@mezbaan/db";
 import { AuditLogService } from "./audit-log.service.js";
+import { decodeCursor, seekCondition, toPage, type CursorFields, type Page } from "./cursor-pagination.js";
 import { DATABASE } from "./db.module.js";
+
+const DEFAULT_LIST_LIMIT = 20;
 
 export interface DenominationCount {
   denominationMinor: bigint;
@@ -160,11 +163,18 @@ export class ShiftsService {
     });
   }
 
-  async listForBranch(restaurantId: string, branchId: string): Promise<ShiftRecord[]> {
-    return withTenant(this.db, { restaurantId }, async (tx) => {
-      const rows = await tx.select().from(schema.shifts).where(eq(schema.shifts.branchId, branchId));
-      return rows.map((row) => this.toRecord(row));
-    });
+  async listForBranch(restaurantId: string, branchId: string, cursor?: string, limit = DEFAULT_LIST_LIMIT): Promise<Page<ShiftRecord>> {
+    const after: CursorFields | undefined = cursor !== undefined ? decodeCursor(cursor) : undefined;
+    const rows = await withTenant(this.db, { restaurantId }, (tx) =>
+      tx
+        .select()
+        .from(schema.shifts)
+        .where(and(eq(schema.shifts.branchId, branchId), seekCondition(schema.shifts.openedAt, schema.shifts.id, after)))
+        .orderBy(desc(schema.shifts.openedAt), desc(schema.shifts.id))
+        .limit(limit + 1),
+    );
+    const page = toPage(rows, limit, (row) => ({ createdAt: row.openedAt, id: row.id }));
+    return { items: page.items.map((row) => this.toRecord(row)), nextCursor: page.nextCursor };
   }
 
   private toRecord(row: typeof schema.shifts.$inferSelect): ShiftRecord {
