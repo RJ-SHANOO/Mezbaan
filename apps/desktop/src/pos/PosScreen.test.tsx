@@ -79,7 +79,19 @@ describe("PosScreen", () => {
   it("renders the synced categories and products", async () => {
     getMenuCategoriesMock.mockResolvedValue([{ id: "cat-1", name: "Burgers", sortOrder: 0 }]);
     getMenuProductsMock.mockResolvedValue([
-      { id: "prod-1", categoryId: "cat-1", name: "Cheeseburger", sku: null, barcode: "1111", imageUrl: null, sortOrder: 0, unitPriceMinor: "1500", currency: "PKR" },
+      {
+        id: "prod-1",
+        categoryId: "cat-1",
+        name: "Cheeseburger",
+        sku: null,
+        barcode: "1111",
+        imageUrl: null,
+        sortOrder: 0,
+        unitPriceMinor: "1500",
+        currency: "PKR",
+        priceListId: "pl-1",
+        priceListVersion: 1,
+      },
     ]);
     syncMenuMock.mockResolvedValue("2026-01-01T00:00:00.000Z");
 
@@ -187,6 +199,8 @@ describe("PosScreen", () => {
       sortOrder: 0,
       unitPriceMinor: "1500",
       currency: "PKR",
+      priceListId: "pl-1",
+      priceListVersion: 1,
     });
     await renderAndFlush();
 
@@ -208,7 +222,19 @@ describe("PosScreen", () => {
   });
 
   describe("the cart", () => {
-    const product = { id: "prod-1", categoryId: "cat-1", name: "Cheeseburger", sku: null, barcode: null, imageUrl: null, sortOrder: 0, unitPriceMinor: "1500", currency: "PKR" };
+    const product = {
+      id: "prod-1",
+      categoryId: "cat-1",
+      name: "Cheeseburger",
+      sku: null,
+      barcode: null,
+      imageUrl: null,
+      sortOrder: 0,
+      unitPriceMinor: "1500",
+      currency: "PKR",
+      priceListId: "pl-1",
+      priceListVersion: 1,
+    };
 
     it("adds a product with no modifier groups straight to the cart on tap", async () => {
       getMenuCategoriesMock.mockResolvedValue([]);
@@ -240,7 +266,7 @@ describe("PosScreen", () => {
           minSelections: 1,
           maxSelections: 1,
           sortOrder: 0,
-          options: [{ id: "opt-1", name: "Extra Cheese", sortOrder: 0, unitPriceMinor: "150", currency: "PKR" }],
+          options: [{ id: "opt-1", name: "Extra Cheese", sortOrder: 0, unitPriceMinor: "150", currency: "PKR", priceListId: "pl-1", priceListVersion: 1 }],
         },
       ]);
       await renderAndFlush();
@@ -312,7 +338,7 @@ describe("PosScreen", () => {
       completeOfflineSaleMock.mockResolvedValue({
         id: "op-1",
         documentNumber: "B1-T1-000001",
-        orderType: "dine_in",
+        orderType: "takeaway",
         currency: "PKR",
         subtotalMinor: "1500",
         serviceChargeMinor: "0",
@@ -330,7 +356,7 @@ describe("PosScreen", () => {
         await new Promise((resolve) => setTimeout(resolve, 0));
       });
 
-      expect(completeOfflineSaleMock).toHaveBeenCalledWith("dine_in", "PKR", expect.arrayContaining([expect.objectContaining({ productId: "prod-1" })]), expect.any(String));
+      expect(completeOfflineSaleMock).toHaveBeenCalledWith("takeaway", "PKR", expect.arrayContaining([expect.objectContaining({ productId: "prod-1" })]), expect.any(String));
       const cart = container?.querySelector("[aria-label='Cart']");
       expect(cart?.textContent).toContain("Cart is empty.");
       expect(cart?.textContent).toContain("B1-T1-000001");

@@ -6,6 +6,8 @@ interface CartLineModifierWire {
   name: string;
   unitPriceMinor: string;
   currency: string;
+  priceListId: string | null;
+  priceListVersion: number | null;
 }
 
 interface CartLineWire {
@@ -14,6 +16,8 @@ interface CartLineWire {
   quantity: number;
   unitPriceMinor: string;
   currency: string;
+  priceListId: string | null;
+  priceListVersion: number | null;
   modifiers: CartLineModifierWire[];
 }
 
@@ -38,7 +42,16 @@ function toWireLine(line: CartLine): CartLineWire {
     quantity: line.quantity,
     unitPriceMinor: line.unitPriceMinor,
     currency: line.currency,
-    modifiers: line.modifiers.map((m) => ({ modifierOptionId: m.modifierOptionId, name: m.name, unitPriceMinor: m.unitPriceMinor, currency: m.currency })),
+    priceListId: line.priceListId,
+    priceListVersion: line.priceListVersion,
+    modifiers: line.modifiers.map((m) => ({
+      modifierOptionId: m.modifierOptionId,
+      name: m.name,
+      unitPriceMinor: m.unitPriceMinor,
+      currency: m.currency,
+      priceListId: m.priceListId,
+      priceListVersion: m.priceListVersion,
+    })),
   };
 }
 

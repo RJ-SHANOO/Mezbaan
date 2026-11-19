@@ -80,7 +80,18 @@ describe("PairingGate", () => {
         new Response(
           JSON.stringify({
             deviceToken: "r1.newtoken",
-            device: { id: "11111111-1111-7111-8111-111111111111", branchId: "22222222-2222-7222-8222-222222222222", label: "Front Counter", deviceType: "pos_terminal", status: "active", terminalNumber: 1, branchNumber: 1, lastSeenAt: null, createdAt: new Date().toISOString() },
+            device: {
+              id: "11111111-1111-7111-8111-111111111111",
+              branchId: "22222222-2222-7222-8222-222222222222",
+              label: "Front Counter",
+              deviceType: "pos_terminal",
+              status: "active",
+              terminalNumber: 1,
+              branchNumber: 1,
+              defaultActorUserId: null,
+              lastSeenAt: null,
+              createdAt: new Date().toISOString(),
+            },
           }),
           { status: 201 },
         ),

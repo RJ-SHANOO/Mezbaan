@@ -1,6 +1,6 @@
-import { Body, Controller, Get, Param, Post, UnauthorizedException } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Put, UnauthorizedException } from "@nestjs/common";
 import { z } from "zod";
-import { CreateDeviceSchema, DeviceSchema, type Device } from "@mezbaan/contracts";
+import { CreateDeviceSchema, DeviceSchema, SetDeviceDefaultActorSchema, type Device } from "@mezbaan/contracts";
 import { DeviceService, type DeviceRecord } from "./device.service.js";
 import { RequireBranchMatch, RequirePermission } from "./permission.decorator.js";
 import { getTenantContext } from "./tenant-context.js";
@@ -17,6 +17,7 @@ function toDeviceResponse(device: DeviceRecord): Device {
     status: device.status,
     terminalNumber: device.terminalNumber,
     branchNumber: device.branchNumber,
+    defaultActorUserId: device.defaultActorUserId,
     lastSeenAt: device.lastSeenAt ? device.lastSeenAt.toISOString() : null,
     createdAt: device.createdAt.toISOString(),
   });
@@ -68,6 +69,18 @@ export class DevicesAdminController {
     const tenant = requireTenant();
     const { id } = parseOrBadRequest(DeviceIdParamSchema, params);
     const device = await this.deviceService.revoke({ restaurantId: tenant.restaurantId, actorUserId: tenant.userId, deviceId: id });
+    return toDeviceResponse(device);
+  }
+
+  /** P2-45 (exit-gate hardening): who an offline sale synced from this
+   * device is attributed to, until desktop has a real login flow. */
+  @Put(":id/default-actor")
+  @RequirePermission("settings.manage")
+  async setDefaultActor(@Param() params: unknown, @Body() body: unknown): Promise<Device> {
+    const tenant = requireTenant();
+    const { id } = parseOrBadRequest(DeviceIdParamSchema, params);
+    const { userId } = parseOrBadRequest(SetDeviceDefaultActorSchema, body);
+    const device = await this.deviceService.setDefaultActor({ restaurantId: tenant.restaurantId, actorUserId: tenant.userId, deviceId: id, defaultActorUserId: userId });
     return toDeviceResponse(device);
   }
 }

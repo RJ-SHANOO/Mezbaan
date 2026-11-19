@@ -15,7 +15,8 @@
 //! be inlined here against `tx` directly rather than called as a function.
 use crate::charges::{self, ChargesConfig, PricingMode, RoundingMode};
 use crate::device_identity::{self, DeviceIdentity};
-use crate::menu_cache::{self, TaxConfig};
+use crate::document_number;
+use crate::menu_cache::{self, AppliedTaxRule, TaxConfig};
 use crate::operation_log::{self, NewOperation, RecordOutcome};
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -29,6 +30,7 @@ pub enum OfflineSaleError {
     UnknownPricingMode(String),
     InvalidAmount(String),
     CurrencyMismatch { expected: String, found: String },
+    DocumentNumberFailed(String),
 }
 
 impl fmt::Display for OfflineSaleError {
@@ -40,6 +42,7 @@ impl fmt::Display for OfflineSaleError {
             OfflineSaleError::UnknownPricingMode(mode) => write!(f, "unknown pricing mode: \"{mode}\""),
             OfflineSaleError::InvalidAmount(amount) => write!(f, "invalid amount: \"{amount}\""),
             OfflineSaleError::CurrencyMismatch { expected, found } => write!(f, "currency mismatch: expected {expected}, found {found}"),
+            OfflineSaleError::DocumentNumberFailed(e) => write!(f, "could not mint a document number: {e}"),
         }
     }
 }
@@ -58,6 +61,12 @@ impl From<charges::ChargesError> for OfflineSaleError {
     }
 }
 
+impl From<document_number::DocumentNumberError> for OfflineSaleError {
+    fn from(e: document_number::DocumentNumberError) -> Self {
+        OfflineSaleError::DocumentNumberFailed(e.to_string())
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct CartLineModifierInput {
@@ -65,6 +74,14 @@ pub struct CartLineModifierInput {
     pub name: String,
     pub unit_price_minor: String,
     pub currency: String,
+    /// Which synced price list (and its version) priced this modifier — `None`
+    /// for a free customization with no price list entry at all. Carried
+    /// straight through into the synced sale payload so the server can
+    /// record exactly what priced it (rule 3).
+    #[serde(default)]
+    pub price_list_id: Option<String>,
+    #[serde(default)]
+    pub price_list_version: Option<i64>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -75,6 +92,14 @@ pub struct CartLineInput {
     pub quantity: i64,
     pub unit_price_minor: String,
     pub currency: String,
+    /// Unlike a modifier's, a sold item must always have been priced against a
+    /// real, synced price list — never free (rule 6). `None` here means the
+    /// product had no synced price at all, which the server rejects outright
+    /// rather than inventing one (order_items.priceListId is NOT NULL).
+    #[serde(default)]
+    pub price_list_id: Option<String>,
+    #[serde(default)]
+    pub price_list_version: Option<i64>,
     #[serde(default)]
     pub modifiers: Vec<CartLineModifierInput>,
 }
@@ -91,6 +116,32 @@ pub struct OfflineInvoice {
     pub tax_base_minor: String,
     pub tax_minor: String,
     pub total_minor: String,
+}
+
+/// P2-45 (exit-gate hardening): what actually gets JSON-serialized into
+/// `operation_log.payload` and later sent verbatim by sync_client.rs —
+/// mirrors `packages/contracts`' `OfflineSaleCompletedPayloadSchema` field
+/// for field (camelCase, same convention as every other wire struct in this
+/// codebase). Deliberately carries the terminal's own already-computed
+/// totals and tax breakdown (not just the raw cart lines) — the server
+/// stores these as the recorded sale (rule 3/4) and independently
+/// recalculates afterward, rather than re-deriving them from the lines a
+/// second time itself.
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct OfflineSaleSyncPayload {
+    order_type: String,
+    currency: String,
+    lines: Vec<CartLineInput>,
+    document_number: String,
+    subtotal_minor: String,
+    service_charge_minor: String,
+    tax_minor: String,
+    total_minor: String,
+    pricing_mode: String,
+    tax_rate_basis_points: i64,
+    service_charge_rate_basis_points: Option<i64>,
+    applied_tax_rules: Vec<AppliedTaxRule>,
 }
 
 fn parse_minor(amount_minor: &str) -> Result<i128, OfflineSaleError> {
@@ -187,21 +238,38 @@ pub fn complete_sale(conn: &mut Connection, order_type: &str, currency: &str, li
     let subtotal = compute_subtotal(currency, lines)?;
     let result = charges::compute_charges(subtotal, &charges_config, RoundingMode::HalfUp)?;
 
+    // Minted *before* operation_log::record_once, now that document_number::
+    // next_document_number can be called directly here — this module's own
+    // sequence-and-write transaction and that function's own transaction run
+    // sequentially (back-to-back on the same &mut Connection, never nested),
+    // so there's no borrow conflict. The sync payload below needs the number
+    // before record_once's fixed NewOperation can be built; a crash between
+    // the two can only ever waste a sequence number, never reuse one (rule
+    // 10 only promises no collision, not a gap-free series).
+    let document_number = document_number::next_document_number(conn, identity.branch_number, identity.terminal_number)?;
+
     let operation_id = operation_log::new_operation_id();
-    let payload = serde_json::to_string(&(order_type, currency, lines)).expect("sale payload always serializes");
+    let sync_payload = OfflineSaleSyncPayload {
+        order_type: order_type.to_string(),
+        currency: currency.to_string(),
+        lines: lines.to_vec(),
+        document_number: document_number.clone(),
+        subtotal_minor: result.subtotal.to_string(),
+        service_charge_minor: result.service_charge.to_string(),
+        tax_minor: result.tax.to_string(),
+        total_minor: result.total.to_string(),
+        pricing_mode: tax_config.pricing_mode.clone(),
+        tax_rate_basis_points: tax_config.tax_rate_basis_points,
+        service_charge_rate_basis_points: tax_config.service_charge_rate_basis_points,
+        applied_tax_rules: tax_config.applied_tax_rules.clone(),
+    };
+    let payload = serde_json::to_string(&sync_payload).expect("sale payload always serializes");
     let operation = NewOperation { id: operation_id.clone(), idempotency_key: idempotency_key.to_string(), operation_type: "offline_sale.completed".to_string(), payload };
 
     let outcome = operation_log::record_once::<OfflineInvoice, OfflineSaleError, _>(conn, operation, |tx| {
-        // Inlined document_number::next_document_number — that function
-        // opens its own transaction, which isn't available from in here
-        // (see this module's own docs for why).
-        let sequence: i64 = tx.query_row("SELECT next_number FROM document_number_sequence WHERE id = 1", [], |row| row.get(0))?;
-        tx.execute("UPDATE document_number_sequence SET next_number = next_number + 1 WHERE id = 1", [])?;
-        let document_number = format!("B{}-T{}-{:06}", identity.branch_number, identity.terminal_number, sequence);
-
         let invoice = OfflineInvoice {
             id: operation_id.clone(),
-            document_number,
+            document_number: document_number.clone(),
             order_type: order_type.to_string(),
             currency: currency.to_string(),
             subtotal_minor: result.subtotal.to_string(),
@@ -282,7 +350,16 @@ mod tests {
     }
 
     fn line(unit_price_minor: &str, quantity: i64) -> CartLineInput {
-        CartLineInput { product_id: "prod-1".into(), name: "Cheeseburger".into(), quantity, unit_price_minor: unit_price_minor.into(), currency: "PKR".into(), modifiers: vec![] }
+        CartLineInput {
+            product_id: "prod-1".into(),
+            name: "Cheeseburger".into(),
+            quantity,
+            unit_price_minor: unit_price_minor.into(),
+            currency: "PKR".into(),
+            price_list_id: Some("pl-1".into()),
+            price_list_version: Some(1),
+            modifiers: vec![],
+        }
     }
 
     #[test]
@@ -310,7 +387,14 @@ mod tests {
         synced_tax_config(&conn, "dine_in", 0, None, None);
 
         let mut with_modifier = line("1000", 3);
-        with_modifier.modifiers = vec![CartLineModifierInput { modifier_option_id: "mod-1".into(), name: "Extra Cheese".into(), unit_price_minor: "100".into(), currency: "PKR".into() }];
+        with_modifier.modifiers = vec![CartLineModifierInput {
+            modifier_option_id: "mod-1".into(),
+            name: "Extra Cheese".into(),
+            unit_price_minor: "100".into(),
+            currency: "PKR".into(),
+            price_list_id: Some("pl-1".into()),
+            price_list_version: Some(1),
+        }];
 
         let invoice = complete_sale(&mut conn, "dine_in", "PKR", &[with_modifier], "idem-2").unwrap();
         assert_eq!(invoice.subtotal_minor, "3300"); // (1000 + 100) * 3
@@ -374,5 +458,36 @@ mod tests {
         let invoice = complete_sale(&mut conn, "dine_in", "PKR", &[line("10000", 1)], "idem-8").unwrap();
         assert_eq!(invoice.service_charge_minor, "1000");
         assert_eq!(invoice.total_minor, "11000");
+    }
+
+    /// P2-45 (exit-gate hardening): the operation_log row is what actually
+    /// gets synced to the server — this is the real wire contract with
+    /// packages/contracts' OfflineSaleCompletedPayloadSchema, so it's worth
+    /// asserting the exact JSON shape directly, not just the returned
+    /// OfflineInvoice (which only reflects what's stored locally).
+    #[test]
+    fn the_synced_payload_is_a_camelcase_object_with_the_document_number_totals_and_price_list_refs() {
+        let mut conn = test_conn();
+        paired(&conn);
+        synced_tax_config(&conn, "takeaway", 1000, None, None);
+
+        let invoice = complete_sale(&mut conn, "takeaway", "PKR", &[line("1500", 2)], "idem-payload-shape").unwrap();
+
+        let payload_json: String = conn.query_row("SELECT payload FROM operation_log WHERE idempotency_key = 'idem-payload-shape'", [], |r| r.get(0)).unwrap();
+        let payload: serde_json::Value = serde_json::from_str(&payload_json).unwrap();
+
+        assert_eq!(payload["orderType"], "takeaway");
+        assert_eq!(payload["currency"], "PKR");
+        assert_eq!(payload["documentNumber"], invoice.document_number);
+        assert_eq!(payload["subtotalMinor"], "3000");
+        assert_eq!(payload["taxMinor"], "300");
+        assert_eq!(payload["totalMinor"], "3300");
+        assert_eq!(payload["pricingMode"], "exclusive");
+        assert_eq!(payload["taxRateBasisPoints"], 1000);
+
+        let first_line = &payload["lines"][0];
+        assert_eq!(first_line["productId"], "prod-1");
+        assert_eq!(first_line["priceListId"], "pl-1");
+        assert_eq!(first_line["priceListVersion"], 1);
     }
 }

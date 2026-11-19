@@ -14,6 +14,12 @@ export interface CartLineModifier {
   name: string;
   unitPriceMinor: string;
   currency: string;
+  /** Which synced price list (and its version) priced this modifier — null
+   * when it's free (no price list entry at all), matching ModifierOption's
+   * own null-pairing. Needed so an offline sale can record exactly what
+   * priced it (rule 3). */
+  priceListId: string | null;
+  priceListVersion: number | null;
 }
 
 export interface CartLine {
@@ -23,6 +29,8 @@ export interface CartLine {
   quantity: number;
   unitPriceMinor: string;
   currency: string;
+  priceListId: string | null;
+  priceListVersion: number | null;
   modifiers: CartLineModifier[];
 }
 
@@ -32,6 +40,8 @@ export function modifierToCartLineModifier(option: ModifierOption, currency: str
     name: option.name,
     unitPriceMinor: option.unitPriceMinor ?? "0",
     currency: option.currency ?? currency,
+    priceListId: option.priceListId,
+    priceListVersion: option.priceListVersion,
   };
 }
 

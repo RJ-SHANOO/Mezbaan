@@ -34,6 +34,7 @@ describe("DeviceSchema", () => {
       deviceType: "pos_terminal",
       terminalNumber: 1,
       branchNumber: 1,
+      defaultActorUserId: null,
       status: "revoked",
       lastSeenAt: null,
       createdAt: new Date().toISOString(),

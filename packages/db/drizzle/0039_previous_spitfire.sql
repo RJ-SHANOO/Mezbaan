@@ -1,0 +1,2 @@
+ALTER TABLE "devices" ADD COLUMN "default_actor_user_id" uuid;--> statement-breakpoint
+ALTER TABLE "devices" ADD CONSTRAINT "devices_default_actor_user_id_users_id_fk" FOREIGN KEY ("default_actor_user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;

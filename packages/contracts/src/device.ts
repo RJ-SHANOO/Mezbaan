@@ -25,10 +25,19 @@ export const DeviceSchema = z.object({
   // halves locally and mint P1-28's document numbers without a server
   // round-trip; previously nothing synced this down at all.
   branchNumber: z.number().int().positive(),
+  // P2-45 (exit-gate hardening): who an offline sale synced from this device
+  // is attributed to — null until an admin configures it, which a sync
+  // handler must treat as "reject this sale, never guess" (rule 6).
+  defaultActorUserId: z.string().uuid().nullable(),
   lastSeenAt: z.string().nullable(),
   createdAt: z.string(),
 });
 export type Device = z.infer<typeof DeviceSchema>;
+
+export const SetDeviceDefaultActorSchema = z.object({
+  userId: z.string().uuid(),
+});
+export type SetDeviceDefaultActor = z.infer<typeof SetDeviceDefaultActorSchema>;
 
 export const PairingCodeResponseSchema = z.object({
   pairingCode: z.string(),

@@ -11,8 +11,8 @@ let container: HTMLDivElement | undefined;
 let root: Root | undefined;
 
 const products: MenuProduct[] = [
-  { id: "prod-1", categoryId: "cat-1", name: "Cheeseburger", sku: null, barcode: null, imageUrl: null, sortOrder: 0, unitPriceMinor: "1500", currency: "PKR" },
-  { id: "prod-2", categoryId: "cat-1", name: "Fries", sku: null, barcode: null, imageUrl: null, sortOrder: 1, unitPriceMinor: null, currency: null },
+  { id: "prod-1", categoryId: "cat-1", name: "Cheeseburger", sku: null, barcode: null, imageUrl: null, sortOrder: 0, unitPriceMinor: "1500", currency: "PKR", priceListId: "pl-1", priceListVersion: 1 },
+  { id: "prod-2", categoryId: "cat-1", name: "Fries", sku: null, barcode: null, imageUrl: null, sortOrder: 1, unitPriceMinor: null, currency: null, priceListId: null, priceListVersion: null },
 ];
 
 function render(overrides: Partial<{ products: MenuProduct[]; selectedProductId: string | null; onSelect: (id: string) => void; emptyMessage: string }> = {}): void {
@@ -87,6 +87,8 @@ describe("ProductGrid — virtualized (large menus)", () => {
     sortOrder: i,
     unitPriceMinor: "1000",
     currency: "PKR",
+    priceListId: "pl-1",
+    priceListVersion: 1,
   }));
 
   const originalClientHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight");

@@ -3,6 +3,7 @@ import { index, integer, pgPolicy, pgTable, text, timestamp, uniqueIndex, uuid }
 import { branches } from "./branches.js";
 import { restaurants } from "./restaurants.js";
 import { tenantMatch } from "./rls.js";
+import { users } from "./users.js";
 
 export const devices = pgTable(
   "devices",
@@ -32,6 +33,14 @@ export const devices = pgTable(
     // Incremented atomically per invoice via a plain UPDATE ... RETURNING, which
     // Postgres already serializes correctly for concurrent writers on one row.
     nextInvoiceSequence: integer("next_invoice_sequence").notNull().default(1),
+    // P2-45 (exit-gate hardening): who an offline sale synced from this device
+    // should be attributed to (orders.openedByUserId, invoices.actorUserId) —
+    // desktop has no login/session flow yet (see order-items.ts/cart.ts's own
+    // notes), so there is no real per-sale cashier identity to record. NULL
+    // until an admin configures it; a sync handler must reject (never guess)
+    // an offline sale from a device with no default actor set (rule 6: every
+    // sensitive/financial action is attributed to a real user, not a guess).
+    defaultActorUserId: uuid("default_actor_user_id").references(() => users.id),
     // NULL until paired (P1-20 issues the token and sets this). Never store the raw
     // token — only its hash, same as passwordHash on users (rule 20).
     tokenHash: text("token_hash"),

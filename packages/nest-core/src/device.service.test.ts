@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { NotFoundException } from "@nestjs/common";
 import { eq } from "drizzle-orm";
 import { createDb, createPool, schema, withTenant, type Database } from "@mezbaan/db";
 import type { Pool } from "pg";
@@ -277,5 +278,33 @@ describe("listRosterForBranch (P2-36)", () => {
 
     const rosterForB = await service.listRosterForBranch(tenantB.restaurantId, tenantB.branchId);
     expect(rosterForB).toHaveLength(0);
+  });
+});
+
+describe("DeviceService.setDefaultActor", () => {
+  it("sets the device's default actor, defaulting to null until configured", async () => {
+    const tenant = await createTenant("default-actor-set");
+    const device = await createDevice(tenant, "Till 1");
+    expect(device.defaultActorUserId).toBeNull();
+
+    const updated = await service.setDefaultActor({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, deviceId: device.id, defaultActorUserId: tenant.ownerUserId });
+    expect(updated.defaultActorUserId).toBe(tenant.ownerUserId);
+  });
+
+  it("rejects a userId outside this restaurant rather than trusting the FK alone", async () => {
+    const tenantA = await createTenant("default-actor-cross-a");
+    const tenantB = await createTenant("default-actor-cross-b");
+    const device = await createDevice(tenantA, "Till 1");
+
+    await expect(
+      service.setDefaultActor({ restaurantId: tenantA.restaurantId, actorUserId: tenantA.ownerUserId, deviceId: device.id, defaultActorUserId: tenantB.ownerUserId }),
+    ).rejects.toThrow(NotFoundException);
+  });
+
+  it("rejects an unknown device", async () => {
+    const tenant = await createTenant("default-actor-unknown-device");
+    await expect(
+      service.setDefaultActor({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, deviceId: randomUUID(), defaultActorUserId: tenant.ownerUserId }),
+    ).rejects.toThrow(NotFoundException);
   });
 });

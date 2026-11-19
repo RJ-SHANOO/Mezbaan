@@ -277,6 +277,12 @@ pub struct MenuProduct {
     /// product yet, not an error.
     pub unit_price_minor: Option<String>,
     pub currency: Option<String>,
+    /// Which synced price list (and its version) this price came from — carried
+    /// through to an offline sale's cart line so a synced sale can record exactly
+    /// what was used to price it (rule 3: the server independently rechecks each
+    /// synced sale). `None` exactly when unit_price_minor is `None`.
+    pub price_list_id: Option<String>,
+    pub price_list_version: Option<i64>,
 }
 
 pub fn list_categories(conn: &Connection) -> rusqlite::Result<Vec<MenuCategory>> {
@@ -306,7 +312,7 @@ pub fn list_categories(conn: &Connection) -> rusqlite::Result<Vec<MenuCategory>>
 pub fn list_products(conn: &Connection, category_id: Option<&str>, search: Option<&str>) -> rusqlite::Result<Vec<MenuProduct>> {
     let search_pattern = search.map(|s| format!("%{}%", s.to_lowercase()));
     let mut stmt = conn.prepare(
-        "SELECT p.id, p.category_id, p.name, p.sku, p.barcode, p.image_url, p.sort_order, pr.unit_price_minor, pr.currency
+        "SELECT p.id, p.category_id, p.name, p.sku, p.barcode, p.image_url, p.sort_order, pr.unit_price_minor, pr.currency, pr.price_list_id, pr.price_list_version
          FROM menu_products p
          LEFT JOIN menu_prices pr ON pr.product_id = p.id AND pr.order_type = ?1
          WHERE (?2 IS NULL OR p.category_id = ?2)
@@ -321,7 +327,7 @@ pub fn list_products(conn: &Connection, category_id: Option<&str>, search: Optio
 /// unlike the free-text `search` field above.
 pub fn find_by_barcode(conn: &Connection, barcode: &str) -> rusqlite::Result<Option<MenuProduct>> {
     let mut stmt = conn.prepare(
-        "SELECT p.id, p.category_id, p.name, p.sku, p.barcode, p.image_url, p.sort_order, pr.unit_price_minor, pr.currency
+        "SELECT p.id, p.category_id, p.name, p.sku, p.barcode, p.image_url, p.sort_order, pr.unit_price_minor, pr.currency, pr.price_list_id, pr.price_list_version
          FROM menu_products p
          LEFT JOIN menu_prices pr ON pr.product_id = p.id AND pr.order_type = ?1
          WHERE p.barcode = ?2
@@ -341,6 +347,9 @@ pub struct ModifierOption {
     /// entry), not an error.
     pub unit_price_minor: Option<String>,
     pub currency: Option<String>,
+    /// Same provenance pair as MenuProduct's — `None` exactly when unit_price_minor is `None`.
+    pub price_list_id: Option<String>,
+    pub price_list_version: Option<i64>,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -372,7 +381,7 @@ pub fn list_modifier_groups_for_product(conn: &Connection, product_id: &str) -> 
         .collect::<rusqlite::Result<Vec<_>>>()?;
 
     let mut option_stmt = conn.prepare(
-        "SELECT o.id, o.name, o.sort_order, pr.unit_price_minor, pr.currency
+        "SELECT o.id, o.name, o.sort_order, pr.unit_price_minor, pr.currency, pr.price_list_id, pr.price_list_version
          FROM modifier_options o
          LEFT JOIN menu_prices pr ON pr.modifier_option_id = o.id AND pr.order_type = ?2
          WHERE o.modifier_group_id = ?1
@@ -383,7 +392,15 @@ pub fn list_modifier_groups_for_product(conn: &Connection, product_id: &str) -> 
     for (id, name, min_selections, max_selections, sort_order) in groups {
         let options = option_stmt
             .query_map((&id, DEFAULT_ORDER_TYPE), |row| {
-                Ok(ModifierOption { id: row.get(0)?, name: row.get(1)?, sort_order: row.get(2)?, unit_price_minor: row.get(3)?, currency: row.get(4)? })
+                Ok(ModifierOption {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    sort_order: row.get(2)?,
+                    unit_price_minor: row.get(3)?,
+                    currency: row.get(4)?,
+                    price_list_id: row.get(5)?,
+                    price_list_version: row.get(6)?,
+                })
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         result.push(ModifierGroupWithOptions { id, name, min_selections, max_selections, sort_order, options });
@@ -391,7 +408,7 @@ pub fn list_modifier_groups_for_product(conn: &Connection, product_id: &str) -> 
     Ok(result)
 }
 
-#[derive(Debug, Serialize, PartialEq)]
+#[derive(Debug, Serialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AppliedTaxRule {
     pub name: String,
@@ -454,6 +471,8 @@ fn map_product_row(row: &rusqlite::Row) -> rusqlite::Result<MenuProduct> {
         sort_order: row.get(6)?,
         unit_price_minor: row.get(7)?,
         currency: row.get(8)?,
+        price_list_id: row.get(9)?,
+        price_list_version: row.get(10)?,
     })
 }
 
@@ -501,6 +520,8 @@ mod tests {
         assert_eq!(products.len(), 2);
         let cheeseburger = products.iter().find(|p| p.id == "prod-1").unwrap();
         assert_eq!(cheeseburger.unit_price_minor, Some("1500".to_string())); // dine_in default, not the takeaway price
+        assert_eq!(cheeseburger.price_list_id, Some("pl-1".to_string()));
+        assert_eq!(cheeseburger.price_list_version, Some(1));
     }
 
     #[test]
@@ -561,6 +582,8 @@ mod tests {
 
         let products = list_products(&conn, None, None).unwrap();
         assert_eq!(products[0].unit_price_minor, None);
+        assert_eq!(products[0].price_list_id, None);
+        assert_eq!(products[0].price_list_version, None);
     }
 
     fn content_with_modifiers() -> String {
@@ -595,8 +618,11 @@ mod tests {
         assert_eq!(group.options.len(), 2);
         let cheese = group.options.iter().find(|o| o.id == "opt-1").unwrap();
         assert_eq!(cheese.unit_price_minor, Some("150".to_string()));
+        assert_eq!(cheese.price_list_id, Some("pl-1".to_string()));
+        assert_eq!(cheese.price_list_version, Some(1));
         let bacon = group.options.iter().find(|o| o.id == "opt-2").unwrap();
         assert_eq!(bacon.unit_price_minor, None); // no price list entry — free, not an error
+        assert_eq!(bacon.price_list_id, None);
     }
 
     #[test]

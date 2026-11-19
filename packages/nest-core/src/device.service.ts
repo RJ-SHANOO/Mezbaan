@@ -15,6 +15,9 @@ export interface DeviceRecord {
   // P2-45: joined from branches.branchNumber, not a devices column itself —
   // see DeviceService.attachBranchNumber/attachBranchNumbers.
   branchNumber: number;
+  // P2-45 (exit-gate hardening): who an offline sale synced from this device
+  // is attributed to. Null until an admin configures it via setDefaultActor.
+  defaultActorUserId: string | null;
   status: "active" | "revoked";
   lastSeenAt: Date | null;
   revokedAt: Date | null;
@@ -51,9 +54,17 @@ export interface RevokeDeviceParams {
   deviceId: string;
 }
 
+export interface SetDefaultActorParams {
+  restaurantId: string;
+  actorUserId: string;
+  deviceId: string;
+  defaultActorUserId: string;
+}
+
 const DEVICE_NOT_FOUND = "Device not found";
 const INVALID_PAIRING_CODE = "Invalid or expired pairing code";
 const INVALID_DEVICE_TOKEN = "Invalid or revoked device token";
+const USER_NOT_FOUND = "User not found";
 const PAIRING_CODE_TTL_MS = 15 * 60 * 1000;
 
 /**
@@ -245,6 +256,42 @@ export class DeviceService {
           action: "device.revoked",
           targetType: "device",
           targetId: device.id,
+        },
+        tx,
+      );
+      return this.attachBranchNumber(tx, device);
+    });
+  }
+
+  /** P2-45 (exit-gate hardening): sets who an offline sale synced from this
+   * device is attributed to (orders.openedByUserId, invoices.actorUserId) —
+   * desktop has no login flow, so this is the real cashier identity stand-in
+   * until one exists. Rejects a userId outside this restaurant rather than
+   * trusting the FK alone, same tenant-isolation reasoning as every other
+   * cross-entity reference in this codebase. */
+  async setDefaultActor(params: SetDefaultActorParams): Promise<DeviceRecord> {
+    return withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
+      const userRows = await tx.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.id, params.defaultActorUserId));
+      if (!userRows[0]) throw new NotFoundException(USER_NOT_FOUND);
+
+      const rows = await tx
+        .update(schema.devices)
+        .set({ defaultActorUserId: params.defaultActorUserId })
+        .where(eq(schema.devices.id, params.deviceId))
+        .returning();
+      const device = rows[0];
+      if (!device) throw new NotFoundException(DEVICE_NOT_FOUND);
+
+      await this.auditLogService.record(
+        {
+          restaurantId: params.restaurantId,
+          branchId: device.branchId,
+          actorUserId: params.actorUserId,
+          deviceId: device.id,
+          action: "device.default_actor_set",
+          targetType: "device",
+          targetId: device.id,
+          metadata: { defaultActorUserId: params.defaultActorUserId },
         },
         tx,
       );

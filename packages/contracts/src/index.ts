@@ -42,6 +42,8 @@ export {
   type DeviceTokenResponse,
   DeviceRosterEntrySchema,
   type DeviceRosterEntry,
+  SetDeviceDefaultActorSchema,
+  type SetDeviceDefaultActor,
 } from "./device.js";
 export { UpdateManifestSchema, type UpdateManifest } from "./release.js";
 export {
@@ -73,6 +75,14 @@ export {
   type SyncOperationResult,
   SyncBatchResponseSchema,
   type SyncBatchResponse,
+  OfflineSaleLineModifierPayloadSchema,
+  type OfflineSaleLineModifierPayload,
+  OfflineSaleLinePayloadSchema,
+  type OfflineSaleLinePayload,
+  OfflineSaleAppliedTaxRulePayloadSchema,
+  type OfflineSaleAppliedTaxRulePayload,
+  OfflineSaleCompletedPayloadSchema,
+  type OfflineSaleCompletedPayload,
 } from "./sync.js";
 export {
   SnapshotStaffMemberSchema,
@@ -251,6 +261,8 @@ export {
   type SplitOrder,
   OrderSchema,
   type Order,
+  OrderPageSchema,
+  type OrderPage,
   OrderStatusHistoryEntrySchema,
   type OrderStatusHistoryEntry,
   OrderTabSchema,
@@ -340,6 +352,8 @@ export {
   type ListReconciliationFlagsQuery,
   ReconciliationFlagSchema,
   type ReconciliationFlag,
+  ReconciliationFlagPageSchema,
+  type ReconciliationFlagPage,
 } from "./reconciliation.js";
 export {
   SetReceiptSettingsSchema,
@@ -358,6 +372,10 @@ export {
   type BusinessDayStatusQuery,
   BusinessDayStatusResponseSchema,
   type BusinessDayStatusResponse,
+  ListBusinessDaysQuerySchema,
+  type ListBusinessDaysQuery,
+  BusinessDayPageSchema,
+  type BusinessDayPage,
 } from "./business-days.js";
 export {
   SalesByMethodSchema,
@@ -396,6 +414,10 @@ export {
   type ShiftStatus,
   ShiftSchema,
   type Shift,
+  ListShiftsQuerySchema,
+  type ListShiftsQuery,
+  ShiftPageSchema,
+  type ShiftPage,
 } from "./shifts.js";
 export {
   CreateCreditCustomerSchema,
@@ -412,6 +434,10 @@ export {
   type RecordRepayment,
   CreditLedgerEntrySchema,
   type CreditLedgerEntry,
+  ListCreditLedgerQuerySchema,
+  type ListCreditLedgerQuery,
+  CreditLedgerEntryPageSchema,
+  type CreditLedgerEntryPage,
 } from "./credit-customers.js";
 export {
   SetRefundReasonCodeSchema,

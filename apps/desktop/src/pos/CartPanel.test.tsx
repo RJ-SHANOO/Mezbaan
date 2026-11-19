@@ -11,7 +11,18 @@ let container: HTMLDivElement | undefined;
 let root: Root | undefined;
 
 function makeLine(overrides: Partial<CartLine> = {}): CartLine {
-  return { lineId: "line-1", productId: "prod-1", name: "Cheeseburger", quantity: 1, unitPriceMinor: "1500", currency: "PKR", modifiers: [], ...overrides };
+  return {
+    lineId: "line-1",
+    productId: "prod-1",
+    name: "Cheeseburger",
+    quantity: 1,
+    unitPriceMinor: "1500",
+    currency: "PKR",
+    priceListId: "pl-1",
+    priceListVersion: 1,
+    modifiers: [],
+    ...overrides,
+  };
 }
 
 function render(
@@ -44,7 +55,7 @@ describe("CartPanel — small cart (unvirtualized)", () => {
   });
 
   it("renders a line with its quantity, name, modifiers and total", () => {
-    render([makeLine({ modifiers: [{ modifierOptionId: "mod-1", name: "Extra Cheese", unitPriceMinor: "100", currency: "PKR" }] })]);
+    render([makeLine({ modifiers: [{ modifierOptionId: "mod-1", name: "Extra Cheese", unitPriceMinor: "100", currency: "PKR", priceListId: "pl-1", priceListVersion: 1 }] })]);
     expect(container?.textContent).toContain("1× Cheeseburger");
     expect(container?.textContent).toContain("Extra Cheese");
   });

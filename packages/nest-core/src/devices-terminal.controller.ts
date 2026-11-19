@@ -13,6 +13,7 @@ function toDeviceResponse(device: DeviceRecord): Device {
     status: device.status,
     terminalNumber: device.terminalNumber,
     branchNumber: device.branchNumber,
+    defaultActorUserId: device.defaultActorUserId,
     lastSeenAt: device.lastSeenAt ? device.lastSeenAt.toISOString() : null,
     createdAt: device.createdAt.toISOString(),
   });

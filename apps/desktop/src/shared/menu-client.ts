@@ -20,6 +20,11 @@ export interface MenuProduct {
   /** Null when nothing's been priced for this product yet — not an error. */
   unitPriceMinor: string | null;
   currency: string | null;
+  /** Which synced price list (and its version) this price came from — null
+   * exactly when unitPriceMinor is null. Carried into the cart so an offline
+   * sale can record exactly what priced it (rule 3). */
+  priceListId: string | null;
+  priceListVersion: number | null;
 }
 
 export interface ModifierOption {
@@ -30,6 +35,9 @@ export interface ModifierOption {
    * not an error. */
   unitPriceMinor: string | null;
   currency: string | null;
+  /** Same provenance pair as MenuProduct's. */
+  priceListId: string | null;
+  priceListVersion: number | null;
 }
 
 export interface ModifierGroup {

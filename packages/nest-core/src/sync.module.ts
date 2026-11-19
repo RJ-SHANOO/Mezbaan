@@ -3,6 +3,8 @@ import { AuditLogService } from "./audit-log.service.js";
 import { DeviceAuthGuard } from "./device-auth.guard.js";
 import { DeviceService } from "./device.service.js";
 import { MenuSnapshotCacheService } from "./menu-snapshot-cache.service.js";
+import { OfflineSaleSyncService } from "./offline-sale-sync.service.js";
+import { OutboxService } from "./outbox.service.js";
 import { PriceResolutionService } from "./price-resolution.service.js";
 import { ServiceChargeSettingsService } from "./service-charge-settings.service.js";
 import { SyncController } from "./sync.controller.js";
@@ -44,6 +46,14 @@ export class SyncModule {
         TaxRulesService,
         TaxSettingsService,
         ServiceChargeSettingsService,
+        // P2-45 (exit-gate hardening): SyncService.receiveBatch needs
+        // OfflineSaleSyncService to turn a synced offline sale into a real
+        // order + invoice, and that service's own @Optional() OutboxService
+        // needs this provided here too — same "don't break direct-
+        // instantiation test call sites" precedent as OrdersModule's own
+        // OutboxService provider.
+        OfflineSaleSyncService,
+        OutboxService,
       ],
       exports: [SyncService, SyncSnapshotService],
     };

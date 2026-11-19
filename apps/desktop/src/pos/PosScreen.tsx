@@ -21,8 +21,12 @@ import { useBarcodeScanner } from "./useBarcodeScanner.js";
 import { useKeyboardShortcuts } from "./useKeyboardShortcuts.js";
 
 /** P2-11's screen has no order-type selector yet (see menu_cache.rs's own
- * docs) — checkout shares that same deliberate simplification. */
-const DEFAULT_ORDER_TYPE = "dine_in";
+ * docs) — checkout shares that same deliberate simplification. "takeaway",
+ * not "dine_in": a dine-in order requires a tableId (the orders table's own
+ * CHECK constraint), and there is no table-selection UI here to supply one —
+ * P2-45's exit-gate hardening found this would otherwise reject every synced
+ * offline sale once the order actually reached the server. */
+const DEFAULT_ORDER_TYPE = "takeaway";
 
 /**
  * P2-11: the touch-first POS screen — category grid, free-text search,
@@ -114,6 +118,8 @@ export function PosScreen(): ReactElement {
       quantity: 1,
       unitPriceMinor: product.unitPriceMinor ?? "0",
       currency: product.currency ?? "PKR",
+      priceListId: product.priceListId,
+      priceListVersion: product.priceListVersion,
       modifiers: modifiers.map((option) => modifierToCartLineModifier(option, product.currency ?? "PKR")),
     };
     setCartLines((lines) => addLine(lines, line));

@@ -2,14 +2,25 @@ import { describe, expect, it } from "vitest";
 import { addLine, cartTotal, type CartLine, lineTotal, modifierToCartLineModifier, removeLine, updateQuantity } from "./cart.js";
 
 function makeLine(overrides: Partial<CartLine> = {}): CartLine {
-  return { lineId: "line-1", productId: "prod-1", name: "Cheeseburger", quantity: 1, unitPriceMinor: "1500", currency: "PKR", modifiers: [], ...overrides };
+  return {
+    lineId: "line-1",
+    productId: "prod-1",
+    name: "Cheeseburger",
+    quantity: 1,
+    unitPriceMinor: "1500",
+    currency: "PKR",
+    priceListId: "pl-1",
+    priceListVersion: 1,
+    modifiers: [],
+    ...overrides,
+  };
 }
 
 describe("cart", () => {
   it("computes a line's total as (unit price + modifiers) × quantity", () => {
     const line = makeLine({
       quantity: 2,
-      modifiers: [{ modifierOptionId: "opt-1", name: "Extra Cheese", unitPriceMinor: "150", currency: "PKR" }],
+      modifiers: [{ modifierOptionId: "opt-1", name: "Extra Cheese", unitPriceMinor: "150", currency: "PKR", priceListId: "pl-1", priceListVersion: 1 }],
     });
     const total = lineTotal(line);
     expect(total.amountMinor).toBe(3300n); // (1500 + 150) * 2
@@ -40,7 +51,7 @@ describe("cart", () => {
   });
 
   it("defaults a free (unpriced) modifier option to zero in the item's own currency", () => {
-    const modifier = modifierToCartLineModifier({ id: "opt-1", name: "No Onions", sortOrder: 0, unitPriceMinor: null, currency: null }, "PKR");
-    expect(modifier).toEqual({ modifierOptionId: "opt-1", name: "No Onions", unitPriceMinor: "0", currency: "PKR" });
+    const modifier = modifierToCartLineModifier({ id: "opt-1", name: "No Onions", sortOrder: 0, unitPriceMinor: null, currency: null, priceListId: null, priceListVersion: null }, "PKR");
+    expect(modifier).toEqual({ modifierOptionId: "opt-1", name: "No Onions", unitPriceMinor: "0", currency: "PKR", priceListId: null, priceListVersion: null });
   });
 });
