@@ -1,6 +1,6 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { add, applyFixedDiscount, applyPercentageDiscount, money, multiply, sum, type Money } from "@mezbaan/domain";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { schema, withTenant, type Database } from "@mezbaan/db";
 import { AuditLogService } from "./audit-log.service.js";
 import { DATABASE } from "./db.module.js";
@@ -154,10 +154,13 @@ export class DiscountsService {
     const { percentBasisPoints, amountMinor } = validateDiscountSpec(params);
 
     return withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
-      const order = await this.requireOpenOrder(tx, params.orderId);
+      const order = await this.requireOpenOrder(tx, params.restaurantId, params.orderId);
       await this.requireActiveReasonCode(tx, params.reasonCode);
 
-      const itemRows = await tx.select().from(schema.orderItems).where(eq(schema.orderItems.id, params.itemId));
+      const itemRows = await tx
+        .select()
+        .from(schema.orderItems)
+        .where(and(eq(schema.orderItems.id, params.itemId), eq(schema.orderItems.restaurantId, params.restaurantId)));
       const item = itemRows[0];
       if (!item || item.orderId !== params.orderId) throw new NotFoundException(ITEM_NOT_FOUND);
       if (item.voidedAt !== null) throw new BadRequestException(ITEM_VOIDED);
@@ -205,11 +208,11 @@ export class DiscountsService {
 
   async removeItemDiscount(params: { restaurantId: string; actorUserId: string; orderId: string; itemId: string }): Promise<void> {
     await withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
-      await this.requireOpenOrder(tx, params.orderId);
+      await this.requireOpenOrder(tx, params.restaurantId, params.orderId);
       const rows = await tx
         .update(schema.orderItems)
         .set({ discountPercentBasisPoints: null, discountAmountMinor: null, discountReasonCode: null, discountApprovedByUserId: null, updatedAt: new Date() })
-        .where(eq(schema.orderItems.id, params.itemId))
+        .where(and(eq(schema.orderItems.id, params.itemId), eq(schema.orderItems.restaurantId, params.restaurantId)))
         .returning({ id: schema.orderItems.id, orderId: schema.orderItems.orderId });
       const item = rows[0];
       if (!item || item.orderId !== params.orderId) throw new NotFoundException(ITEM_NOT_FOUND);
@@ -226,7 +229,7 @@ export class DiscountsService {
     const { percentBasisPoints, amountMinor } = validateDiscountSpec(params);
 
     return withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
-      const order = await this.requireOpenOrder(tx, params.orderId);
+      const order = await this.requireOpenOrder(tx, params.restaurantId, params.orderId);
       await this.requireActiveReasonCode(tx, params.reasonCode);
 
       // P2-23: a voided item contributes nothing to the bill-level base either —
@@ -276,7 +279,7 @@ export class DiscountsService {
 
   async removeBillDiscount(params: { restaurantId: string; actorUserId: string; orderId: string }): Promise<void> {
     await withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
-      await this.requireOpenOrder(tx, params.orderId);
+      await this.requireOpenOrder(tx, params.restaurantId, params.orderId);
       await tx
         .update(schema.orders)
         .set({ discountPercentBasisPoints: null, discountAmountMinor: null, discountReasonCode: null, discountApprovedByUserId: null, updatedAt: new Date() })
@@ -289,8 +292,11 @@ export class DiscountsService {
     });
   }
 
-  private async requireOpenOrder(tx: Database, orderId: string): Promise<{ branchId: string; currency: string }> {
-    const rows = await tx.select().from(schema.orders).where(eq(schema.orders.id, orderId));
+  private async requireOpenOrder(tx: Database, restaurantId: string, orderId: string): Promise<{ branchId: string; currency: string }> {
+    const rows = await tx
+      .select()
+      .from(schema.orders)
+      .where(and(eq(schema.orders.id, orderId), eq(schema.orders.restaurantId, restaurantId)));
     const order = rows[0];
     if (!order) throw new NotFoundException(ORDER_NOT_FOUND);
     if (order.status !== "open") throw new BadRequestException(ORDER_NOT_OPEN);

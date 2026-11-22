@@ -70,7 +70,10 @@ export class ReconciliationService {
 
   async reconcileInvoice(params: { restaurantId: string; invoiceId: string }): Promise<void> {
     await withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
-      const invoiceRows = await tx.select().from(schema.invoices).where(eq(schema.invoices.id, params.invoiceId));
+      const invoiceRows = await tx
+        .select()
+        .from(schema.invoices)
+        .where(and(eq(schema.invoices.id, params.invoiceId), eq(schema.invoices.restaurantId, params.restaurantId)));
       const invoice = invoiceRows[0];
       if (!invoice) throw new Error(`reconcileInvoice: invoice ${params.invoiceId} not found`);
 

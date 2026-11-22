@@ -132,14 +132,14 @@ export class CreditCustomersService {
 
   async get(restaurantId: string, creditCustomerId: string): Promise<CreditCustomerRecord> {
     return withTenant(this.db, { restaurantId }, async (tx) => {
-      const customer = await this.requireCustomer(tx, creditCustomerId);
+      const customer = await this.requireCustomer(tx, restaurantId, creditCustomerId);
       return customer;
     });
   }
 
   async update(params: UpdateCreditCustomerParams): Promise<CreditCustomerRecord> {
     return withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
-      await this.requireCustomer(tx, params.creditCustomerId);
+      await this.requireCustomer(tx, params.restaurantId, params.creditCustomerId);
 
       const rows = await tx
         .update(schema.creditCustomers)
@@ -165,7 +165,7 @@ export class CreditCustomersService {
 
   async getBalance(params: { restaurantId: string; creditCustomerId: string }): Promise<CreditBalance> {
     return withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
-      const customer = await this.requireCustomer(tx, params.creditCustomerId);
+      const customer = await this.requireCustomer(tx, params.restaurantId, params.creditCustomerId);
       const balanceMinor = await this.computeBalance(tx, params.creditCustomerId);
       return { creditLimitMinor: customer.creditLimitMinor, balanceMinor, availableCreditMinor: customer.creditLimitMinor - balanceMinor };
     });
@@ -178,7 +178,13 @@ export class CreditCustomersService {
       tx
         .select()
         .from(schema.creditLedgerEntries)
-        .where(and(eq(schema.creditLedgerEntries.creditCustomerId, params.creditCustomerId), seekCondition(schema.creditLedgerEntries.createdAt, schema.creditLedgerEntries.id, after)))
+        .where(
+          and(
+            eq(schema.creditLedgerEntries.creditCustomerId, params.creditCustomerId),
+            eq(schema.creditLedgerEntries.restaurantId, params.restaurantId),
+            seekCondition(schema.creditLedgerEntries.createdAt, schema.creditLedgerEntries.id, after),
+          ),
+        )
         .orderBy(desc(schema.creditLedgerEntries.createdAt), desc(schema.creditLedgerEntries.id))
         .limit(limit + 1),
     );
@@ -192,7 +198,7 @@ export class CreditCustomersService {
       // Row-locked so two concurrent charges against the same customer can't
       // both read the same balance and both pass the limit check — same
       // SELECT ... FOR UPDATE convention as PaymentsService.record (P2-20).
-      const customer = await this.requireCustomer(tx, params.creditCustomerId, true);
+      const customer = await this.requireCustomer(tx, params.restaurantId, params.creditCustomerId, true);
       if (!customer.isActive) throw new BadRequestException(CUSTOMER_INACTIVE);
 
       const balanceMinor = await this.computeBalance(tx, params.creditCustomerId);
@@ -213,7 +219,7 @@ export class CreditCustomersService {
     if (params.amountMinor <= 0n) throw new BadRequestException(AMOUNT_MUST_BE_POSITIVE);
 
     return withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
-      const customer = await this.requireCustomer(tx, params.creditCustomerId, true);
+      const customer = await this.requireCustomer(tx, params.restaurantId, params.creditCustomerId, true);
       const balanceMinor = await this.computeBalance(tx, params.creditCustomerId);
       if (params.amountMinor > balanceMinor) throw new BadRequestException(AMOUNT_EXCEEDS_BALANCE_OWED);
 
@@ -265,10 +271,11 @@ export class CreditCustomersService {
     return charged - repaid;
   }
 
-  private async requireCustomer(tx: Database, creditCustomerId: string, forUpdate = false): Promise<CreditCustomerRecord> {
+  private async requireCustomer(tx: Database, restaurantId: string, creditCustomerId: string, forUpdate = false): Promise<CreditCustomerRecord> {
+    const condition = and(eq(schema.creditCustomers.id, creditCustomerId), eq(schema.creditCustomers.restaurantId, restaurantId));
     const rows = forUpdate
-      ? await tx.select().from(schema.creditCustomers).where(eq(schema.creditCustomers.id, creditCustomerId)).for("update")
-      : await tx.select().from(schema.creditCustomers).where(eq(schema.creditCustomers.id, creditCustomerId));
+      ? await tx.select().from(schema.creditCustomers).where(condition).for("update")
+      : await tx.select().from(schema.creditCustomers).where(condition);
     const customer = rows[0];
     if (!customer) throw new NotFoundException(CUSTOMER_NOT_FOUND);
     return customer;

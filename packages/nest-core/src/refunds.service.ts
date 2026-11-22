@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { schema, withTenant, type Database } from "@mezbaan/db";
 import { AuditLogService } from "./audit-log.service.js";
 import { DATABASE } from "./db.module.js";
@@ -103,7 +103,10 @@ export class RefundsService {
 
   async getBalance(params: { restaurantId: string; invoiceId: string }): Promise<RefundBalance> {
     return withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
-      const invoiceRows = await tx.select({ id: schema.invoices.id }).from(schema.invoices).where(eq(schema.invoices.id, params.invoiceId));
+      const invoiceRows = await tx
+        .select({ id: schema.invoices.id })
+        .from(schema.invoices)
+        .where(and(eq(schema.invoices.id, params.invoiceId), eq(schema.invoices.restaurantId, params.restaurantId)));
       if (!invoiceRows[0]) throw new NotFoundException(INVOICE_NOT_FOUND);
       return this.computeBalance(tx, params.invoiceId);
     });
@@ -123,7 +126,10 @@ export class RefundsService {
       // on `invoices` at the database level (see PaymentsService.record,
       // P2-20, for why FOR UPDATE can't be used here).
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${params.invoiceId}))`);
-      const invoiceRows = await tx.select().from(schema.invoices).where(eq(schema.invoices.id, params.invoiceId));
+      const invoiceRows = await tx
+        .select()
+        .from(schema.invoices)
+        .where(and(eq(schema.invoices.id, params.invoiceId), eq(schema.invoices.restaurantId, params.restaurantId)));
       const invoice = invoiceRows[0];
       if (!invoice) throw new NotFoundException(INVOICE_NOT_FOUND);
 

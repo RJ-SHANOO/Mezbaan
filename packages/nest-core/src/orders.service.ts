@@ -188,7 +188,7 @@ export class OrdersService {
 
     return withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
       if (params.tableId !== undefined) {
-        await this.requireFreeTableInBranch(tx, params.tableId, params.branchId);
+        await this.requireFreeTableInBranch(tx, params.restaurantId, params.tableId, params.branchId);
       }
 
       let rows: OrderRecord[];
@@ -270,7 +270,11 @@ export class OrdersService {
       // order (another terminal closing while this one cancels, say) waits
       // for this one to commit and then re-reads its real outcome, instead
       // of racing past this check on stale data and silently overwriting it.
-      const existingRows = await tx.select().from(schema.orders).where(eq(schema.orders.id, params.orderId)).for("update");
+      const existingRows = await tx
+        .select()
+        .from(schema.orders)
+        .where(and(eq(schema.orders.id, params.orderId), eq(schema.orders.restaurantId, params.restaurantId)))
+        .for("update");
       const existing = existingRows[0];
       if (!existing) throw new NotFoundException(ORDER_NOT_FOUND);
       try {
@@ -318,7 +322,10 @@ export class OrdersService {
 
   async getStatusHistory(params: { restaurantId: string; orderId: string }): Promise<OrderStatusHistoryEntry[]> {
     return withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
-      const orderRows = await tx.select({ id: schema.orders.id }).from(schema.orders).where(eq(schema.orders.id, params.orderId));
+      const orderRows = await tx
+        .select({ id: schema.orders.id })
+        .from(schema.orders)
+        .where(and(eq(schema.orders.id, params.orderId), eq(schema.orders.restaurantId, params.restaurantId)));
       if (!orderRows[0]) throw new NotFoundException(ORDER_NOT_FOUND);
 
       return tx
@@ -332,7 +339,10 @@ export class OrdersService {
   /** P2-14: a dine-in table's running tab — the order currently occupying it (open or held), its items, and the running total. */
   async getTableTab(params: { restaurantId: string; tableId: string }): Promise<OrderTab> {
     return withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
-      const tableRows = await tx.select({ id: schema.diningTables.id }).from(schema.diningTables).where(eq(schema.diningTables.id, params.tableId));
+      const tableRows = await tx
+        .select({ id: schema.diningTables.id })
+        .from(schema.diningTables)
+        .where(and(eq(schema.diningTables.id, params.tableId), eq(schema.diningTables.restaurantId, params.restaurantId)));
       if (!tableRows[0]) throw new NotFoundException(TABLE_NOT_FOUND);
 
       const orderRows = await tx
@@ -351,9 +361,9 @@ export class OrdersService {
   /** P2-08: move a dine-in order to a different, currently-free table — e.g. the guests change seats. */
   async transferTable(params: TransferTableParams): Promise<OrderRecord> {
     return withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
-      const source = await this.requireOccupyingDineInOrder(tx, params.orderId);
+      const source = await this.requireOccupyingDineInOrder(tx, params.restaurantId, params.orderId);
       if (source.tableId === params.targetTableId) throw new BadRequestException(SAME_TABLE);
-      await this.requireFreeTableInBranch(tx, params.targetTableId, source.branchId);
+      await this.requireFreeTableInBranch(tx, params.restaurantId, params.targetTableId, source.branchId);
 
       let rows: OrderRecord[];
       try {
@@ -397,9 +407,9 @@ export class OrdersService {
    */
   async mergeTables(params: MergeTablesParams): Promise<MergeTablesResult> {
     return withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
-      const source = await this.requireOccupyingDineInOrder(tx, params.orderId);
+      const source = await this.requireOccupyingDineInOrder(tx, params.restaurantId, params.orderId);
       if (source.tableId === params.targetTableId) throw new BadRequestException(SAME_TABLE);
-      const targetOrder = await this.requireOccupiedTableOrder(tx, params.targetTableId, source.branchId);
+      const targetOrder = await this.requireOccupiedTableOrder(tx, params.restaurantId, params.targetTableId, source.branchId);
       if (source.currency !== targetOrder.currency) throw new BadRequestException(CURRENCY_MISMATCH);
 
       try {
@@ -455,9 +465,9 @@ export class OrdersService {
     if (params.itemIds.length === 0) throw new BadRequestException(ITEM_IDS_REQUIRED);
 
     return withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
-      const source = await this.requireOccupyingDineInOrder(tx, params.orderId);
+      const source = await this.requireOccupyingDineInOrder(tx, params.restaurantId, params.orderId);
       if (source.tableId === params.targetTableId) throw new BadRequestException(SAME_TABLE);
-      await this.requireFreeTableInBranch(tx, params.targetTableId, source.branchId);
+      await this.requireFreeTableInBranch(tx, params.restaurantId, params.targetTableId, source.branchId);
 
       const existingItemRows = await tx.select({ id: schema.orderItems.id }).from(schema.orderItems).where(eq(schema.orderItems.orderId, source.id));
       const existingItemIds = new Set(existingItemRows.map((row) => row.id));
@@ -516,8 +526,12 @@ export class OrdersService {
   }
 
   /** Loads an order and asserts it's dine-in (has a table) and currently occupying it (open or held). Row-locked (P2-16) — this is always the first read in a transfer/merge/split. */
-  private async requireOccupyingDineInOrder(tx: Database, orderId: string): Promise<OrderRecord> {
-    const rows = await tx.select().from(schema.orders).where(eq(schema.orders.id, orderId)).for("update");
+  private async requireOccupyingDineInOrder(tx: Database, restaurantId: string, orderId: string): Promise<OrderRecord> {
+    const rows = await tx
+      .select()
+      .from(schema.orders)
+      .where(and(eq(schema.orders.id, orderId), eq(schema.orders.restaurantId, restaurantId)))
+      .for("update");
     const order = rows[0];
     if (!order) throw new NotFoundException(ORDER_NOT_FOUND);
     if (order.tableId === null) throw new BadRequestException(NOT_DINE_IN);
@@ -528,8 +542,11 @@ export class OrdersService {
   }
 
   /** Loads a table in the given branch and asserts no order currently occupies it. */
-  private async requireFreeTableInBranch(tx: Database, tableId: string, branchId: string): Promise<void> {
-    const tableRows = await tx.select().from(schema.diningTables).where(eq(schema.diningTables.id, tableId));
+  private async requireFreeTableInBranch(tx: Database, restaurantId: string, tableId: string, branchId: string): Promise<void> {
+    const tableRows = await tx
+      .select()
+      .from(schema.diningTables)
+      .where(and(eq(schema.diningTables.id, tableId), eq(schema.diningTables.restaurantId, restaurantId)));
     const table = tableRows[0];
     if (!table) throw new NotFoundException(TABLE_NOT_FOUND);
     if (table.branchId !== branchId) throw new BadRequestException(TABLE_WRONG_BRANCH);
@@ -542,8 +559,11 @@ export class OrdersService {
   }
 
   /** Loads a table in the given branch and returns whichever order currently occupies it, if any. Row-locked (P2-16) — mergeTables writes this order's items next. */
-  private async requireOccupiedTableOrder(tx: Database, tableId: string, branchId: string): Promise<OrderRecord> {
-    const tableRows = await tx.select().from(schema.diningTables).where(eq(schema.diningTables.id, tableId));
+  private async requireOccupiedTableOrder(tx: Database, restaurantId: string, tableId: string, branchId: string): Promise<OrderRecord> {
+    const tableRows = await tx
+      .select()
+      .from(schema.diningTables)
+      .where(and(eq(schema.diningTables.id, tableId), eq(schema.diningTables.restaurantId, restaurantId)));
     const table = tableRows[0];
     if (!table) throw new NotFoundException(TABLE_NOT_FOUND);
     if (table.branchId !== branchId) throw new BadRequestException(TABLE_WRONG_BRANCH);

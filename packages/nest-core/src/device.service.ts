@@ -153,7 +153,7 @@ export class DeviceService {
       const rows = await tx
         .update(schema.devices)
         .set({ pairingCodeHash: hashOpaqueToken(pairingCode), pairingCodeExpiresAt: expiresAt })
-        .where(eq(schema.devices.id, params.deviceId))
+        .where(and(eq(schema.devices.id, params.deviceId), eq(schema.devices.restaurantId, params.restaurantId)))
         .returning({ id: schema.devices.id });
       if (!rows[0]) throw new NotFoundException(DEVICE_NOT_FOUND);
 
@@ -242,7 +242,7 @@ export class DeviceService {
       const rows = await tx
         .update(schema.devices)
         .set({ status: "revoked", revokedAt: new Date(), tokenHash: null })
-        .where(eq(schema.devices.id, params.deviceId))
+        .where(and(eq(schema.devices.id, params.deviceId), eq(schema.devices.restaurantId, params.restaurantId)))
         .returning();
       const device = rows[0];
       if (!device) throw new NotFoundException(DEVICE_NOT_FOUND);
@@ -271,13 +271,16 @@ export class DeviceService {
    * cross-entity reference in this codebase. */
   async setDefaultActor(params: SetDefaultActorParams): Promise<DeviceRecord> {
     return withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
-      const userRows = await tx.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.id, params.defaultActorUserId));
+      const userRows = await tx
+        .select({ id: schema.users.id })
+        .from(schema.users)
+        .where(and(eq(schema.users.id, params.defaultActorUserId), eq(schema.users.restaurantId, params.restaurantId)));
       if (!userRows[0]) throw new NotFoundException(USER_NOT_FOUND);
 
       const rows = await tx
         .update(schema.devices)
         .set({ defaultActorUserId: params.defaultActorUserId })
-        .where(eq(schema.devices.id, params.deviceId))
+        .where(and(eq(schema.devices.id, params.deviceId), eq(schema.devices.restaurantId, params.restaurantId)))
         .returning();
       const device = rows[0];
       if (!device) throw new NotFoundException(DEVICE_NOT_FOUND);

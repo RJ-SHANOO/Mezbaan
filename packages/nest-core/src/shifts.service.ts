@@ -74,7 +74,10 @@ export class ShiftsService {
     if (params.openingFloatMinor < 0n) throw new BadRequestException(FLOAT_MUST_NOT_BE_NEGATIVE);
 
     return withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
-      const deviceRows = await tx.select().from(schema.devices).where(eq(schema.devices.id, params.deviceId));
+      const deviceRows = await tx
+        .select()
+        .from(schema.devices)
+        .where(and(eq(schema.devices.id, params.deviceId), eq(schema.devices.restaurantId, params.restaurantId)));
       const device = deviceRows[0];
       if (!device) throw new NotFoundException(DEVICE_NOT_FOUND);
       if (device.status === "revoked") throw new BadRequestException(DEVICE_REVOKED);

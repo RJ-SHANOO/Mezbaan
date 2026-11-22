@@ -101,12 +101,18 @@ export class InvoicesService {
     if (params.itemIds !== undefined && params.itemIds.length === 0) throw new BadRequestException(EMPTY_GROUP_NOT_ALLOWED);
 
     return withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
-      const orderRows = await tx.select().from(schema.orders).where(eq(schema.orders.id, params.orderId));
+      const orderRows = await tx
+        .select()
+        .from(schema.orders)
+        .where(and(eq(schema.orders.id, params.orderId), eq(schema.orders.restaurantId, params.restaurantId)));
       const order = orderRows[0];
       if (!order) throw new NotFoundException(ORDER_NOT_FOUND);
       if (order.status !== "closed") throw new BadRequestException(ORDER_NOT_CLOSED);
 
-      const deviceRows = await tx.select().from(schema.devices).where(eq(schema.devices.id, params.deviceId));
+      const deviceRows = await tx
+        .select()
+        .from(schema.devices)
+        .where(and(eq(schema.devices.id, params.deviceId), eq(schema.devices.restaurantId, params.restaurantId)));
       const device = deviceRows[0];
       if (!device) throw new NotFoundException(DEVICE_NOT_FOUND);
       if (device.branchId !== order.branchId) throw new BadRequestException(DEVICE_WRONG_BRANCH);

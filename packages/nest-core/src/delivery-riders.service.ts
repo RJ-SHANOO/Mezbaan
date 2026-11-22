@@ -1,5 +1,5 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { schema, withTenant, type Database } from "@mezbaan/db";
 import { AuditLogService } from "./audit-log.service.js";
 import { DATABASE } from "./db.module.js";
@@ -54,7 +54,10 @@ export class DeliveryRidersService {
 
   async create(params: CreateDeliveryRiderParams): Promise<DeliveryRiderRecord> {
     return withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
-      const branchRows = await tx.select({ id: schema.branches.id }).from(schema.branches).where(eq(schema.branches.id, params.branchId));
+      const branchRows = await tx
+        .select({ id: schema.branches.id })
+        .from(schema.branches)
+        .where(and(eq(schema.branches.id, params.branchId), eq(schema.branches.restaurantId, params.restaurantId)));
       if (branchRows.length === 0) throw new NotFoundException("Branch not found");
 
       const rows = await tx
@@ -82,7 +85,7 @@ export class DeliveryRidersService {
           ...(params.isActive !== undefined && { isActive: params.isActive }),
           updatedAt: new Date(),
         })
-        .where(eq(schema.deliveryRiders.id, params.riderId))
+        .where(and(eq(schema.deliveryRiders.id, params.riderId), eq(schema.deliveryRiders.restaurantId, params.restaurantId)))
         .returning();
       const rider = rows[0];
       if (!rider) throw new NotFoundException(RIDER_NOT_FOUND);

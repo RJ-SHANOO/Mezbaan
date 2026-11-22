@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { schema, withTenant, type Database } from "@mezbaan/db";
 import { AuditLogService } from "./audit-log.service.js";
 import { DATABASE } from "./db.module.js";
@@ -75,7 +75,7 @@ export class DeliveryDetailsService {
 
   async setDetails(params: SetDeliveryDetailsParams): Promise<DeliveryDetailsRecord> {
     return withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
-      await assertDeliveryOrder(tx, params.orderId);
+      await assertDeliveryOrder(tx, params.restaurantId, params.orderId);
 
       const existingRows = await tx.select().from(schema.deliveryDetails).where(eq(schema.deliveryDetails.orderId, params.orderId));
       const existing = existingRows[0];
@@ -127,9 +127,12 @@ export class DeliveryDetailsService {
 
   async assignRider(params: AssignRiderParams): Promise<DeliveryDetailsRecord> {
     return withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
-      await assertDeliveryOrder(tx, params.orderId);
+      await assertDeliveryOrder(tx, params.restaurantId, params.orderId);
 
-      const riderRows = await tx.select({ id: schema.deliveryRiders.id }).from(schema.deliveryRiders).where(eq(schema.deliveryRiders.id, params.riderId));
+      const riderRows = await tx
+        .select({ id: schema.deliveryRiders.id })
+        .from(schema.deliveryRiders)
+        .where(and(eq(schema.deliveryRiders.id, params.riderId), eq(schema.deliveryRiders.restaurantId, params.restaurantId)));
       if (riderRows.length === 0) throw new NotFoundException(RIDER_NOT_FOUND);
 
       const existingRows = await tx.select().from(schema.deliveryDetails).where(eq(schema.deliveryDetails.orderId, params.orderId));
@@ -165,7 +168,7 @@ export class DeliveryDetailsService {
 
   async updateStatus(params: UpdateDeliveryStatusParams): Promise<DeliveryDetailsRecord> {
     return withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
-      await assertDeliveryOrder(tx, params.orderId);
+      await assertDeliveryOrder(tx, params.restaurantId, params.orderId);
 
       const existingRows = await tx.select().from(schema.deliveryDetails).where(eq(schema.deliveryDetails.orderId, params.orderId));
       const existing = existingRows[0];
@@ -195,8 +198,11 @@ export class DeliveryDetailsService {
   }
 }
 
-async function assertDeliveryOrder(tx: Database, orderId: string): Promise<void> {
-  const orderRows = await tx.select().from(schema.orders).where(eq(schema.orders.id, orderId));
+async function assertDeliveryOrder(tx: Database, restaurantId: string, orderId: string): Promise<void> {
+  const orderRows = await tx
+    .select()
+    .from(schema.orders)
+    .where(and(eq(schema.orders.id, orderId), eq(schema.orders.restaurantId, restaurantId)));
   const order = orderRows[0];
   if (!order) throw new NotFoundException(ORDER_NOT_FOUND);
   if (order.orderType !== "delivery") throw new BadRequestException(NOT_A_DELIVERY_ORDER);

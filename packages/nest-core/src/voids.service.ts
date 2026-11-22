@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { schema, withTenant, type Database } from "@mezbaan/db";
 import { AuditLogService } from "./audit-log.service.js";
 import { DATABASE } from "./db.module.js";
@@ -98,13 +98,17 @@ export class VoidsService {
 
   async voidItem(params: VoidItemParams): Promise<VoidOutcome> {
     return withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
-      const order = await this.requireOpenOrder(tx, params.orderId);
+      const order = await this.requireOpenOrder(tx, params.restaurantId, params.orderId);
       await this.requireActiveReasonCode(tx, params.reasonCode);
 
       // Row-locked so two concurrent void attempts on the same item (or a void
       // racing a fire) can't both see "not yet voided/fired" and both act —
       // same SELECT ... FOR UPDATE convention as P2-16/P2-20/P2-21.
-      const itemRows = await tx.select().from(schema.orderItems).where(eq(schema.orderItems.id, params.itemId)).for("update");
+      const itemRows = await tx
+        .select()
+        .from(schema.orderItems)
+        .where(and(eq(schema.orderItems.id, params.itemId), eq(schema.orderItems.restaurantId, params.restaurantId)))
+        .for("update");
       const item = itemRows[0];
       if (!item || item.orderId !== params.orderId) throw new NotFoundException(ITEM_NOT_FOUND);
       if (item.voidedAt !== null) throw new BadRequestException(ALREADY_VOIDED);
@@ -146,8 +150,11 @@ export class VoidsService {
     });
   }
 
-  private async requireOpenOrder(tx: Database, orderId: string): Promise<{ branchId: string }> {
-    const rows = await tx.select({ id: schema.orders.id, branchId: schema.orders.branchId, status: schema.orders.status }).from(schema.orders).where(eq(schema.orders.id, orderId));
+  private async requireOpenOrder(tx: Database, restaurantId: string, orderId: string): Promise<{ branchId: string }> {
+    const rows = await tx
+      .select({ id: schema.orders.id, branchId: schema.orders.branchId, status: schema.orders.status })
+      .from(schema.orders)
+      .where(and(eq(schema.orders.id, orderId), eq(schema.orders.restaurantId, restaurantId)));
     const order = rows[0];
     if (!order) throw new NotFoundException(ORDER_NOT_FOUND);
     if (order.status !== "open") throw new BadRequestException(ORDER_NOT_OPEN);

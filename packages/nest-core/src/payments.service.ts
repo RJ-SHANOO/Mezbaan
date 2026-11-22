@@ -1,6 +1,6 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { allocate, money, type Money } from "@mezbaan/domain";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { schema, withTenant, type Database } from "@mezbaan/db";
 import { AuditLogService } from "./audit-log.service.js";
 import { DATABASE } from "./db.module.js";
@@ -92,7 +92,10 @@ export class PaymentsService {
       // UPDATE privilege to take a row lock via FOR UPDATE even though
       // nothing here actually updates the row.
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${params.invoiceId}))`);
-      const invoiceRows = await tx.select().from(schema.invoices).where(eq(schema.invoices.id, params.invoiceId));
+      const invoiceRows = await tx
+        .select()
+        .from(schema.invoices)
+        .where(and(eq(schema.invoices.id, params.invoiceId), eq(schema.invoices.restaurantId, params.restaurantId)));
       const invoice = invoiceRows[0];
       if (!invoice) throw new NotFoundException(INVOICE_NOT_FOUND);
 
@@ -153,7 +156,10 @@ export class PaymentsService {
   /** P2-20: the running balance a split-payment flow checks before deciding the next method/amount. */
   async getBalance(params: { restaurantId: string; invoiceId: string }): Promise<InvoiceBalance> {
     return withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
-      const invoiceRows = await tx.select({ totalMinor: schema.invoices.totalMinor }).from(schema.invoices).where(eq(schema.invoices.id, params.invoiceId));
+      const invoiceRows = await tx
+        .select({ totalMinor: schema.invoices.totalMinor })
+        .from(schema.invoices)
+        .where(and(eq(schema.invoices.id, params.invoiceId), eq(schema.invoices.restaurantId, params.restaurantId)));
       const invoice = invoiceRows[0];
       if (!invoice) throw new NotFoundException(INVOICE_NOT_FOUND);
 
@@ -176,7 +182,10 @@ export class PaymentsService {
     if (!Number.isInteger(params.parts) || params.parts <= 0) throw new BadRequestException(PARTS_MUST_BE_POSITIVE);
 
     return withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
-      const invoiceRows = await tx.select({ totalMinor: schema.invoices.totalMinor, currency: schema.invoices.currency }).from(schema.invoices).where(eq(schema.invoices.id, params.invoiceId));
+      const invoiceRows = await tx
+        .select({ totalMinor: schema.invoices.totalMinor, currency: schema.invoices.currency })
+        .from(schema.invoices)
+        .where(and(eq(schema.invoices.id, params.invoiceId), eq(schema.invoices.restaurantId, params.restaurantId)));
       const invoice = invoiceRows[0];
       if (!invoice) throw new NotFoundException(INVOICE_NOT_FOUND);
 
