@@ -90,23 +90,23 @@ mod tests {
     #[test]
     fn saves_and_loads_the_identity_back_verbatim() {
         let conn = test_conn();
-        let identity = DeviceIdentity { branch_number: 1, terminal_number: 2 };
-        save(&conn, identity).unwrap();
+        let identity = DeviceIdentity { branch_number: 1, terminal_number: 2, restaurant_id: Some("r1".to_string()) };
+        save(&conn, identity.clone()).unwrap();
         assert_eq!(load(&conn).unwrap(), Some(identity));
     }
 
     #[test]
     fn saving_again_overwrites_rather_than_accumulates() {
         let conn = test_conn();
-        save(&conn, DeviceIdentity { branch_number: 1, terminal_number: 2 }).unwrap();
-        save(&conn, DeviceIdentity { branch_number: 3, terminal_number: 4 }).unwrap();
-        assert_eq!(load(&conn).unwrap(), Some(DeviceIdentity { branch_number: 3, terminal_number: 4 }));
+        save(&conn, DeviceIdentity { branch_number: 1, terminal_number: 2, restaurant_id: Some("r1".to_string()) }).unwrap();
+        save(&conn, DeviceIdentity { branch_number: 3, terminal_number: 4, restaurant_id: Some("r2".to_string()) }).unwrap();
+        assert_eq!(load(&conn).unwrap(), Some(DeviceIdentity { branch_number: 3, terminal_number: 4, restaurant_id: Some("r2".to_string()) }));
     }
 
     #[test]
     fn clear_removes_it() {
         let conn = test_conn();
-        save(&conn, DeviceIdentity { branch_number: 1, terminal_number: 2 }).unwrap();
+        save(&conn, DeviceIdentity { branch_number: 1, terminal_number: 2, restaurant_id: Some("r1".to_string()) }).unwrap();
         clear(&conn).unwrap();
         assert_eq!(load(&conn).unwrap(), None);
     }
