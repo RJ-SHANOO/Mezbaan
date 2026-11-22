@@ -1,5 +1,9 @@
 import { z } from "zod";
+import { CurrencyCodeSchema } from "./currency.js";
 import { pageResponseSchema } from "./pagination.js";
+
+const MINOR_UNITS_PATTERN = /^-?\d+$/;
+const MinorUnitsSchema = z.string().regex(MINOR_UNITS_PATTERN, "must be an integer string");
 
 export const MovementTypeSchema = z.enum(["purchase", "sale", "return", "wastage", "adjustment", "count", "production", "transfer"]);
 export type MovementType = z.infer<typeof MovementTypeSchema>;
@@ -11,13 +15,25 @@ export type MovementType = z.infer<typeof MovementTypeSchema>;
 export const SingleLocationMovementTypeSchema = MovementTypeSchema.exclude(["transfer"]);
 export type SingleLocationMovementType = z.infer<typeof SingleLocationMovementTypeSchema>;
 
-export const RecordStockMovementSchema = z.object({
-  storageLocationId: z.string().uuid(),
-  itemId: z.string().uuid(),
-  movementType: SingleLocationMovementTypeSchema,
-  quantityDelta: z.number().refine((n) => n !== 0, "quantityDelta must not be zero"),
-  note: z.string().min(1).optional(),
-});
+/** unitCostMinor/currency: only meaningful for an increase (quantityDelta
+ * > 0) — the cost this delivery/batch carries, blended into the item's
+ * weighted average at this location (P3-11). Silently ignored for a
+ * decrease, which the server always values at the current average
+ * instead; must be given together or not at all. */
+export const RecordStockMovementSchema = z
+  .object({
+    storageLocationId: z.string().uuid(),
+    itemId: z.string().uuid(),
+    movementType: SingleLocationMovementTypeSchema,
+    quantityDelta: z.number().refine((n) => n !== 0, "quantityDelta must not be zero"),
+    unitCostMinor: MinorUnitsSchema.optional(),
+    currency: CurrencyCodeSchema.optional(),
+    note: z.string().min(1).optional(),
+  })
+  .refine((data) => (data.unitCostMinor !== undefined) === (data.currency !== undefined), {
+    message: "unitCostMinor and currency must be given together",
+    path: ["unitCostMinor"],
+  });
 export type RecordStockMovement = z.infer<typeof RecordStockMovementSchema>;
 
 export const RecordTransferSchema = z.object({
@@ -37,6 +53,8 @@ export const StockMovementSchema = z.object({
   movementType: MovementTypeSchema,
   quantityDelta: z.number(),
   transferGroupId: z.string().uuid().nullable(),
+  unitCostMinor: MinorUnitsSchema.nullable(),
+  currency: z.string().nullable(),
   note: z.string().nullable(),
   actorUserId: z.string().uuid(),
   createdAt: z.string(),

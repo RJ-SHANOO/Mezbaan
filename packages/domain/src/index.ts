@@ -30,3 +30,4 @@ export {
   assertCanTransitionOrderStatus,
 } from "./order-state-machine.js";
 export { convertQuantity } from "./quantity.js";
+export { scaleMoneyByQuantity, blendWeightedAverageCost } from "./costing.js";

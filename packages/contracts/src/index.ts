@@ -445,6 +445,26 @@ export {
   StockMovementPageSchema,
   type StockMovementPage,
 } from "./stock-ledger.js";
+export {
+  StockLevelSchema,
+  type StockLevel,
+  ListStockLevelsQuerySchema,
+  type ListStockLevelsQuery,
+  RebuildStockLevelsSchema,
+  type RebuildStockLevels,
+  StockLevelDiscrepancySchema,
+  type StockLevelDiscrepancy,
+  RebuildStockLevelsResultSchema,
+  type RebuildStockLevelsResult,
+} from "./stock-levels.js";
+export {
+  NegativeStockFlagSchema,
+  type NegativeStockFlag,
+  ListNegativeStockFlagsQuerySchema,
+  type ListNegativeStockFlagsQuery,
+  NegativeStockFlagPageSchema,
+  type NegativeStockFlagPage,
+} from "./negative-stock-flags.js";
 export { UploadedImageSchema, type UploadedImage } from "./images.js";
 export {
   ListReconciliationFlagsQuerySchema,

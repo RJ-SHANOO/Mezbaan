@@ -416,6 +416,24 @@ export {
   type ListMovementsParams,
 } from "./stock-ledger.service.js";
 export { StockLedgerController } from "./stock-ledger.controller.js";
+export {
+  StockLevelsService,
+  type StockLevelRecord,
+  type ApplyDeltaParams,
+  type ListStockLevelsParams,
+  type RebuildStockLevelsParams,
+  type StockLevelDiscrepancy,
+  type RebuildStockLevelsResult,
+} from "./stock-levels.service.js";
+export { StockLevelsController } from "./stock-levels.controller.js";
+export {
+  NegativeStockFlagsService,
+  type NegativeStockFlagRecord,
+  type CreateFlagParams,
+  type ListFlagsParams as ListNegativeStockFlagsParams,
+  type ReviewFlagParams,
+} from "./negative-stock-flags.service.js";
+export { NegativeStockFlagsController } from "./negative-stock-flags.controller.js";
 export { InventoryModule } from "./inventory.module.js";
 export { ReconciliationService, type ReconciliationFlagRecord } from "./reconciliation.service.js";
 export { ReconciliationFlagsController } from "./reconciliation.controller.js";

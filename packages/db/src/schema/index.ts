@@ -64,3 +64,5 @@ export { units } from "./units.js";
 export { inventoryItems } from "./inventory-items.js";
 export { inventoryItemUnitConversions } from "./inventory-item-unit-conversions.js";
 export { stockLedger } from "./stock-ledger.js";
+export { stockLevels } from "./stock-levels.js";
+export { negativeStockFlags } from "./negative-stock-flags.js";

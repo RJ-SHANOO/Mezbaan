@@ -5,6 +5,8 @@ import { schema, withTenant, type Database } from "@mezbaan/db";
 import { AuditLogService } from "./audit-log.service.js";
 import { decodeCursor, seekCondition, toPage, type CursorFields, type Page } from "./cursor-pagination.js";
 import { DATABASE } from "./db.module.js";
+import { NegativeStockFlagsService } from "./negative-stock-flags.service.js";
+import { StockLevelsService } from "./stock-levels.service.js";
 
 export type MovementType = "purchase" | "sale" | "return" | "wastage" | "adjustment" | "count" | "production" | "transfer";
 
@@ -16,6 +18,8 @@ export interface StockMovementRecord {
   movementType: MovementType;
   quantityDelta: number;
   transferGroupId: string | null;
+  unitCostMinor: bigint | null;
+  currency: string | null;
   note: string | null;
   actorUserId: string;
   createdAt: Date;
@@ -28,6 +32,12 @@ export interface RecordMovementParams {
   itemId: string;
   movementType: Exclude<MovementType, "transfer">;
   quantityDelta: number;
+  /** Only meaningful for an increase (quantityDelta > 0) — what this
+   * delivery/batch cost, folded into the item's weighted average at this
+   * location. Ignored for a decrease, which is always valued at the
+   * current average instead (see StockLevelsService.applyDelta). */
+  unitCostMinor?: bigint;
+  currency?: string;
   note?: string;
 }
 
@@ -61,10 +71,13 @@ const CROSS_BRANCH_TRANSFER = "a transfer between different branches isn't suppo
 /**
  * P3-09: the append-only stock ledger (rule 4 — UPDATE/DELETE revoked at
  * the DB level in app-role.ts, same enforcement as invoices/payments/
- * refunds/credit_ledger_entries). This is the *only* source of truth for
- * stock — branch/location stock levels are always derived by summing it
- * (P3-10's job), never stored separately. A wrong entry is corrected with
- * a new, opposite-signed row, never an edit.
+ * refunds/credit_ledger_entries). This is the *only* real source of truth
+ * for stock; every insert here also upserts P3-10's stock_levels cache
+ * (StockLevelsService.applyDelta) in the same transaction, so a reader
+ * never re-sums the whole ledger to know a current level — see that
+ * service's own docs for why a cache exists here when CreditCustomers'
+ * balance deliberately doesn't. A wrong entry is corrected with a new,
+ * opposite-signed row, never an edit.
  *
  * `quantityDelta` must already be in the item's own base unit
  * (inventory_items.baseUnitId) — a caller working in a different unit
@@ -83,6 +96,8 @@ export class StockLedgerService {
   constructor(
     @Inject(DATABASE) private readonly db: Database,
     private readonly auditLogService: AuditLogService,
+    private readonly stockLevelsService: StockLevelsService,
+    private readonly negativeStockFlagsService: NegativeStockFlagsService,
   ) {}
 
   async recordMovement(params: RecordMovementParams): Promise<StockMovementRecord> {
@@ -91,6 +106,16 @@ export class StockLedgerService {
     return withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
       await this.requireItem(tx, params.itemId);
       const location = await this.requireLocation(tx, params.storageLocationId);
+
+      const snapshot = await this.stockLevelsService.applyDelta(tx, {
+        restaurantId: params.restaurantId,
+        branchId: location.branchId,
+        storageLocationId: params.storageLocationId,
+        itemId: params.itemId,
+        quantityDelta: params.quantityDelta,
+        unitCostMinor: params.unitCostMinor,
+        currency: params.currency,
+      });
 
       const rows = await tx
         .insert(schema.stockLedger)
@@ -101,6 +126,8 @@ export class StockLedgerService {
           itemId: params.itemId,
           movementType: params.movementType,
           quantityDelta: params.quantityDelta,
+          unitCostMinor: snapshot.unitCostMinor,
+          currency: snapshot.currency,
           note: params.note ?? null,
           actorUserId: params.actorUserId,
         })
@@ -120,6 +147,20 @@ export class StockLedgerService {
         },
         tx,
       );
+
+      // Rule 12: never block the sale/movement itself — this only ever
+      // flags it for later review, after it's already recorded.
+      if (snapshot.newQuantity < 0) {
+        await this.negativeStockFlagsService.create(tx, {
+          restaurantId: params.restaurantId,
+          branchId: movement.branchId,
+          storageLocationId: movement.storageLocationId,
+          itemId: movement.itemId,
+          stockLedgerId: movement.id,
+          quantityAfter: snapshot.newQuantity,
+        });
+      }
+
       return movement;
     });
   }
@@ -136,6 +177,29 @@ export class StockLedgerService {
       if (fromLocation.branchId !== toLocation.branchId) throw new BadRequestException(CROSS_BRANCH_TRANSFER);
 
       const transferGroupId = randomUUID();
+
+      // Outbound first: a transfer moves stock at whatever it's already
+      // worth at the source, never a cost the caller invents — so no
+      // unitCostMinor/currency is supplied here, same as any other
+      // decrease. The returned snapshot (the source's current average)
+      // is then what the destination receives it at.
+      const outboundSnapshot = await this.stockLevelsService.applyDelta(tx, {
+        restaurantId: params.restaurantId,
+        branchId: fromLocation.branchId,
+        storageLocationId: params.fromStorageLocationId,
+        itemId: params.itemId,
+        quantityDelta: -params.quantity,
+      });
+      const inboundSnapshot = await this.stockLevelsService.applyDelta(tx, {
+        restaurantId: params.restaurantId,
+        branchId: toLocation.branchId,
+        storageLocationId: params.toStorageLocationId,
+        itemId: params.itemId,
+        quantityDelta: params.quantity,
+        unitCostMinor: outboundSnapshot.unitCostMinor ?? undefined,
+        currency: outboundSnapshot.currency ?? undefined,
+      });
+
       const outboundRows = await tx
         .insert(schema.stockLedger)
         .values({
@@ -146,6 +210,8 @@ export class StockLedgerService {
           movementType: "transfer",
           quantityDelta: -params.quantity,
           transferGroupId,
+          unitCostMinor: outboundSnapshot.unitCostMinor,
+          currency: outboundSnapshot.currency,
           note: params.note ?? null,
           actorUserId: params.actorUserId,
         })
@@ -160,6 +226,8 @@ export class StockLedgerService {
           movementType: "transfer",
           quantityDelta: params.quantity,
           transferGroupId,
+          unitCostMinor: inboundSnapshot.unitCostMinor,
+          currency: inboundSnapshot.currency,
           note: params.note ?? null,
           actorUserId: params.actorUserId,
         })
@@ -179,6 +247,20 @@ export class StockLedgerService {
         },
         tx,
       );
+
+      // Only the outbound leg can ever go negative — the inbound leg is
+      // always an increase. Same "flag, never block" rule as recordMovement.
+      if (outboundSnapshot.newQuantity < 0) {
+        await this.negativeStockFlagsService.create(tx, {
+          restaurantId: params.restaurantId,
+          branchId: outbound.branchId,
+          storageLocationId: outbound.storageLocationId,
+          itemId: outbound.itemId,
+          stockLedgerId: outbound.id,
+          quantityAfter: outboundSnapshot.newQuantity,
+        });
+      }
+
       return { outbound, inbound };
     });
   }

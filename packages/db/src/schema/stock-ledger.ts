@@ -1,4 +1,4 @@
-import { numeric, pgPolicy, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { bigint, numeric, pgPolicy, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { branches } from "./branches.js";
 import { inventoryItems } from "./inventory-items.js";
 import { restaurants } from "./restaurants.js";
@@ -29,12 +29,24 @@ import { users } from "./users.js";
  * one location's stock changing by exactly one signed amount, with no
  * special case for transfers. Null for every other movement type.
  *
- * No unit cost here yet — weighted average costing with a per-movement
- * snapshot is P3-11's job specifically, same "primitive now, real costing
- * later" split as P3-07/P3-08's own baseUnit history. No reference to a
- * purchase order, sale or stock count either — those tables don't exist
- * yet (P3-17/P3-21/P3-26); `note` is a free-text placeholder for human
- * context until a real typed reference is worth adding.
+ * P3-11: `unitCostMinor`/`currency` snapshot what THIS movement's own
+ * units were worth at the moment it happened — not necessarily the
+ * resulting average. For an increase (purchase/return/production/a
+ * positive adjustment or count) with a caller-supplied cost, it's that
+ * raw delivery cost verbatim (the price actually paid, kept distinct from
+ * whatever the blended average becomes — stock_levels.averageCostMinor
+ * holds that); for an increase with no cost supplied, or any decrease
+ * (sale/wastage/transfer-out/negative count or adjustment), it's simply
+ * the average that was already current at that moment, since there's no
+ * new cost information to record and a decrease never changes the
+ * average anyway. Null only when the item had never had a costed
+ * movement at this location before. Money, so rule 5 applies: an integer
+ * in minor units, computed exclusively via packages/domain's
+ * blendWeightedAverageCost — never by hand.
+ *
+ * No reference to a purchase order, sale or stock count — those tables
+ * don't exist yet (P3-17/P3-21/P3-26); `note` is a free-text placeholder
+ * for human context until a real typed reference is worth adding.
  */
 export const stockLedger = pgTable(
   "stock_ledger",
@@ -57,6 +69,8 @@ export const stockLedger = pgTable(
     }).notNull(),
     quantityDelta: numeric("quantity_delta", { mode: "number", precision: 18, scale: 6 }).notNull(),
     transferGroupId: uuid("transfer_group_id"),
+    unitCostMinor: bigint("unit_cost_minor", { mode: "bigint" }),
+    currency: text("currency"),
     note: text("note"),
     actorUserId: uuid("actor_user_id")
       .notNull()

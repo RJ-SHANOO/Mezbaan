@@ -14,6 +14,8 @@ function toMovementResponse(movement: StockMovementRecord): StockMovement {
     movementType: movement.movementType,
     quantityDelta: movement.quantityDelta,
     transferGroupId: movement.transferGroupId,
+    unitCostMinor: movement.unitCostMinor?.toString() ?? null,
+    currency: movement.currency,
     note: movement.note,
     actorUserId: movement.actorUserId,
     createdAt: movement.createdAt.toISOString(),
@@ -38,7 +40,12 @@ export class StockLedgerController {
   async record(@Body() body: unknown): Promise<StockMovement> {
     const tenant = requireTenant();
     const request = parseOrBadRequest(RecordStockMovementSchema, body);
-    const movement = await this.stockLedgerService.recordMovement({ ...request, restaurantId: tenant.restaurantId, actorUserId: tenant.userId });
+    const movement = await this.stockLedgerService.recordMovement({
+      ...request,
+      restaurantId: tenant.restaurantId,
+      actorUserId: tenant.userId,
+      unitCostMinor: request.unitCostMinor !== undefined ? BigInt(request.unitCostMinor) : undefined,
+    });
     return toMovementResponse(movement);
   }
 
