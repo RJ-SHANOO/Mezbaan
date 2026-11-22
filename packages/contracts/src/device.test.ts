@@ -29,6 +29,7 @@ describe("DeviceSchema", () => {
   it("accepts a revoked device with no lastSeenAt", () => {
     const device = {
       id: "11111111-1111-7111-8111-111111111111",
+      restaurantId: "33333333-3333-7333-8333-333333333333",
       branchId: "22222222-2222-7222-8222-222222222222",
       label: "Front Counter",
       deviceType: "pos_terminal",

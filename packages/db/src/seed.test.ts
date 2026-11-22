@@ -31,7 +31,7 @@ describe("seed data consistency", () => {
     }
   });
 
-  it("kitchen_staff gets none of the seeded (money-adjacent) permissions, per rule 18", () => {
-    expect(ROLE_PERMISSIONS["kitchen_staff"]).toEqual([]);
+  it("kitchen_staff gets only kitchen.view, never a money-adjacent permission, per rule 18", () => {
+    expect(ROLE_PERMISSIONS["kitchen_staff"]).toEqual(["kitchen.view"]);
   });
 });
