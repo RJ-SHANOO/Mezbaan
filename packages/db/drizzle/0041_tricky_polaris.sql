@@ -1,0 +1,1 @@
+ALTER TABLE "order_items" ADD COLUMN "rush" boolean DEFAULT false NOT NULL;

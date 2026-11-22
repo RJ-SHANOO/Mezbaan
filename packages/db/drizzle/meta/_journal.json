@@ -281,6 +281,48 @@
       "when": 1795035576925,
       "tag": "0039_previous_spitfire",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1795111706767,
+      "tag": "0040_bent_kingpin",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1795112387286,
+      "tag": "0041_tricky_polaris",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1795113435517,
+      "tag": "0042_chemical_tomas",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1795114542025,
+      "tag": "0043_organic_lionheart",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1795174383822,
+      "tag": "0044_sticky_sunspot",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1795366429577,
+      "tag": "0045_optimal_malice",
+      "breakpoints": true
     }
   ]
 }

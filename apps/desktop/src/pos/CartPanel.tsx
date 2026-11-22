@@ -14,6 +14,13 @@ interface CartPanelProps {
   onRemove: (lineId: string) => void;
   onCheckout: () => void;
   checkoutStatus: CheckoutStatus;
+  /** P3-05: offline fire-to-kitchen, relayed over the branch hub — see
+   * PosScreen's handleFireToKitchen and offline-kitchen-ticket.ts. */
+  firedLineIds: Set<string>;
+  onFireToKitchen: () => void;
+  rush: boolean;
+  onRushChange: (rush: boolean) => void;
+  hubConnected: boolean;
 }
 
 /** Below this, every line renders directly (P2-12's original, unchanged) —
@@ -23,12 +30,13 @@ interface CartPanelProps {
 const VIRTUALIZE_THRESHOLD = 40;
 const ESTIMATED_LINE_HEIGHT_PX = 72;
 
-function CartLineContent({ line, onRemove }: { line: CartLine; onRemove: (lineId: string) => void }): ReactElement {
+function CartLineContent({ line, onRemove, fired }: { line: CartLine; onRemove: (lineId: string) => void; fired: boolean }): ReactElement {
   return (
     <>
       <div className="flex items-start justify-between gap-2">
         <span className="text-sm font-medium text-slate-700">
           {line.quantity}× {line.name}
+          {fired && <span className="ml-2 rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-semibold text-emerald-700">Fired</span>}
         </span>
         <button type="button" onClick={() => onRemove(line.lineId)} aria-label={`Remove ${line.name} from cart`} className="text-xs text-red-500 hover:underline">
           Remove
@@ -44,10 +52,10 @@ function CartLineContent({ line, onRemove }: { line: CartLine; onRemove: (lineId
   );
 }
 
-function CartLineRow({ line, onRemove }: { line: CartLine; onRemove: (lineId: string) => void }): ReactElement {
+function CartLineRow({ line, onRemove, fired }: { line: CartLine; onRemove: (lineId: string) => void; fired: boolean }): ReactElement {
   return (
     <li role="listitem" className="flex flex-col gap-1 border-b border-slate-100 pb-2">
-      <CartLineContent line={line} onRemove={onRemove} />
+      <CartLineContent line={line} onRemove={onRemove} fired={fired} />
     </li>
   );
 }
@@ -59,8 +67,9 @@ function CartLineRow({ line, onRemove }: { line: CartLine; onRemove: (lineId: st
  * mounted via `@tanstack/react-virtual`, measuring each line's real
  * rendered height (`measureElement`) rather than assuming a fixed one —
  * a line's height varies with how many modifiers it carries. */
-export function CartPanel({ lines, onRemove, onCheckout, checkoutStatus }: CartPanelProps): ReactElement {
+export function CartPanel({ lines, onRemove, onCheckout, checkoutStatus, firedLineIds, onFireToKitchen, rush, onRushChange, hubConnected }: CartPanelProps): ReactElement {
   const total = cartTotal(lines);
+  const hasUnfiredLines = lines.some((line) => !firedLineIds.has(line.lineId));
   const scrollRef = useRef<HTMLUListElement>(null);
   const rowVirtualizer = useVirtualizer({
     count: lines.length,
@@ -95,7 +104,7 @@ export function CartPanel({ lines, onRemove, onCheckout, checkoutStatus }: CartP
                 className="flex flex-col gap-1 border-b border-slate-100 pb-2"
                 style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${virtualRow.start}px)` }}
               >
-                <CartLineContent line={line} onRemove={onRemove} />
+                <CartLineContent line={line} onRemove={onRemove} fired={firedLineIds.has(line.lineId)} />
               </li>
             );
           })}
@@ -103,7 +112,7 @@ export function CartPanel({ lines, onRemove, onCheckout, checkoutStatus }: CartP
       ) : (
         <ul className="flex flex-col gap-2" role="list">
           {lines.map((line) => (
-            <CartLineRow key={line.lineId} line={line} onRemove={onRemove} />
+            <CartLineRow key={line.lineId} line={line} onRemove={onRemove} fired={firedLineIds.has(line.lineId)} />
           ))}
         </ul>
       )}
@@ -111,6 +120,24 @@ export function CartPanel({ lines, onRemove, onCheckout, checkoutStatus }: CartP
         <span>Total</span>
         <span>{total ? formatMoney(total) : "—"}</span>
       </div>
+      <label className="flex items-center gap-2 text-xs text-slate-600">
+        <input type="checkbox" checked={rush} onChange={(event) => onRushChange(event.target.checked)} />
+        Mark as rush
+      </label>
+      <button
+        type="button"
+        onClick={onFireToKitchen}
+        disabled={!hasUnfiredLines}
+        aria-label="Fire to kitchen"
+        className="rounded-lg border border-brand-purple px-3 py-2 text-sm font-semibold text-brand-purple disabled:opacity-50"
+      >
+        Fire to kitchen
+      </button>
+      {!hubConnected && (
+        <p className="text-xs text-amber-600" role="status">
+          Hub not connected — fired tickets won&apos;t reach the kitchen display right now.
+        </p>
+      )}
       <button
         type="button"
         onClick={onCheckout}

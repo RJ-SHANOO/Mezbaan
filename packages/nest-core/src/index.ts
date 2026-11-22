@@ -223,6 +223,29 @@ export {
 } from "./dining-tables.service.js";
 export { DiningTablesController } from "./dining-tables.controller.js";
 export { TablesModule } from "./tables.module.js";
+export { KitchenStationsService, type KitchenStationRecord, type CreateKitchenStationParams, type UpdateKitchenStationParams } from "./kitchen-stations.service.js";
+export { KitchenStationsController } from "./kitchen-stations.controller.js";
+export {
+  KitchenRoutingRulesService,
+  type KitchenRoutingRuleRecord,
+  type CreateKitchenRoutingRuleParams,
+  type UpdateKitchenRoutingRuleParams,
+  type ResolveStationParams,
+} from "./kitchen-routing-rules.service.js";
+export { KitchenRoutingRulesController } from "./kitchen-routing-rules.controller.js";
+export { KitchenModule } from "./kitchen.module.js";
+export {
+  KitchenTicketsService,
+  type KitchenTicketRecord,
+  type KitchenTicketItemRecord,
+  type KitchenTicketModifierRecord,
+  type GetKitchenTicketsParams,
+  type BumpTicketParams,
+  type RecallTicketParams,
+  type OrderReadyParams,
+} from "./kitchen-tickets.service.js";
+export { KitchenTicketsController } from "./kitchen-tickets.controller.js";
+export { KitchenTicketsTerminalController } from "./kitchen-tickets-terminal.controller.js";
 export {
   OrdersService,
   type OrderStatus,
@@ -367,6 +390,33 @@ export {
   type RefundReport as RefundReportRecord,
 } from "./sales-reports.service.js";
 export { SalesReportsController } from "./sales-reports.controller.js";
+export { KitchenPrepTimeReportsService, type PrepTimeReportEntry, type PrepTimeReport, type PrepTimeReportParams } from "./kitchen-prep-time-reports.service.js";
+export { KitchenPrepTimeReportsController } from "./kitchen-prep-time-reports.controller.js";
+export { InventoryCategoriesService, type InventoryCategoryRecord, type CreateInventoryCategoryParams, type UpdateInventoryCategoryParams } from "./inventory-categories.service.js";
+export { InventoryCategoriesController } from "./inventory-categories.controller.js";
+export { StorageLocationsService, type StorageLocationRecord, type CreateStorageLocationParams, type UpdateStorageLocationParams } from "./storage-locations.service.js";
+export { StorageLocationsController } from "./storage-locations.controller.js";
+export { InventoryItemsService, type InventoryItemRecord, type CreateInventoryItemParams, type UpdateInventoryItemParams } from "./inventory-items.service.js";
+export { InventoryItemsController } from "./inventory-items.controller.js";
+export { UnitsService, type UnitRecord, type CreateUnitParams, type UpdateUnitParams } from "./units.service.js";
+export { UnitsController } from "./units.controller.js";
+export {
+  InventoryItemUnitConversionsService,
+  type UnitConversionRecord,
+  type SetUnitConversionParams,
+  type ConvertItemQuantityParams,
+} from "./inventory-item-unit-conversions.service.js";
+export { InventoryItemUnitConversionsController } from "./inventory-item-unit-conversions.controller.js";
+export {
+  StockLedgerService,
+  type MovementType,
+  type StockMovementRecord,
+  type RecordMovementParams,
+  type RecordTransferParams,
+  type ListMovementsParams,
+} from "./stock-ledger.service.js";
+export { StockLedgerController } from "./stock-ledger.controller.js";
+export { InventoryModule } from "./inventory.module.js";
 export { ReconciliationService, type ReconciliationFlagRecord } from "./reconciliation.service.js";
 export { ReconciliationFlagsController } from "./reconciliation.controller.js";
 export { StorageModule, S3_CLIENT, STORAGE_OPTIONS, type StorageModuleOptions } from "./storage.module.js";

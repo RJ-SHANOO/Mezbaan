@@ -31,10 +31,18 @@ impl From<rusqlite::Error> for DeviceIdentityError {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct DeviceIdentity {
     pub branch_number: i64,
     pub terminal_number: i64,
+    /// P3-05: this device's own tenant — needed to scope branch-hub
+    /// discovery (hub_discovery.rs broadcasts are restaurant-scoped), not a
+    /// cross-tenant leak since it's the device's own record describing
+    /// itself (rule 1). `Option` only because terminals paired before this
+    /// field existed never saved one — treat `None` the same as "hub
+    /// discovery unavailable until re-paired," never as a reason to guess.
+    pub restaurant_id: Option<String>,
 }
 
 /// Overwrites any previously stored identity — correct for this terminal

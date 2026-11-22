@@ -12,6 +12,13 @@ export type CreateDevice = z.infer<typeof CreateDeviceSchema>;
 
 export const DeviceSchema = z.object({
   id: z.string().uuid(),
+  // P3-05: a device's own tenant — not a cross-tenant leak (rule 1), since
+  // this is the device's own record describing itself, already scoped to
+  // one restaurant by construction. Needed so an offline terminal can scope
+  // branch-hub discovery (hub_discovery.rs broadcasts are restaurant-scoped)
+  // without a server round-trip, same reasoning as branchNumber/
+  // terminalNumber below.
+  restaurantId: z.string().uuid(),
   branchId: z.string().uuid(),
   label: z.string(),
   deviceType: DeviceTypeSchema,

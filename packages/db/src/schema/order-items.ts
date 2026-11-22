@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { bigint, check, integer, pgPolicy, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { bigint, boolean, check, integer, pgPolicy, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { invoices } from "./invoices.js";
 import { orders } from "./orders.js";
 import { priceLists } from "./price-lists.js";
@@ -59,6 +59,10 @@ export const orderItems = pgTable(
     // (P2-23's job) can tell whether an item ever reached the kitchen at all.
     firedAt: timestamp("fired_at", { withTimezone: true }),
     firedByUserId: uuid("fired_by_user_id").references(() => users.id),
+    // P3-02: whether this item was marked rush at fire time — set once,
+    // alongside firedAt/firedByUserId, by OrderItemsService.fireItems. Only
+    // meaningful once fired; always false beforehand.
+    rush: boolean("rush").notNull().default(false),
     // P2-21: set once this item has been billed on a split invoice — null
     // means "not yet invoiced." A closed order's items are either all billed
     // on one invoice (the P2-18 default, no splitting) or spread across

@@ -1,0 +1,57 @@
+import { z } from "zod";
+import { pageResponseSchema } from "./pagination.js";
+
+export const MovementTypeSchema = z.enum(["purchase", "sale", "return", "wastage", "adjustment", "count", "production", "transfer"]);
+export type MovementType = z.infer<typeof MovementTypeSchema>;
+
+/** "transfer" is deliberately excluded — it always produces two rows
+ * (source and destination, sharing a server-filled-in transferGroupId),
+ * so it has its own endpoint/schema (RecordTransferSchema) rather than
+ * being a movementType value a caller can pick here. */
+export const SingleLocationMovementTypeSchema = MovementTypeSchema.exclude(["transfer"]);
+export type SingleLocationMovementType = z.infer<typeof SingleLocationMovementTypeSchema>;
+
+export const RecordStockMovementSchema = z.object({
+  storageLocationId: z.string().uuid(),
+  itemId: z.string().uuid(),
+  movementType: SingleLocationMovementTypeSchema,
+  quantityDelta: z.number().refine((n) => n !== 0, "quantityDelta must not be zero"),
+  note: z.string().min(1).optional(),
+});
+export type RecordStockMovement = z.infer<typeof RecordStockMovementSchema>;
+
+export const RecordTransferSchema = z.object({
+  itemId: z.string().uuid(),
+  fromStorageLocationId: z.string().uuid(),
+  toStorageLocationId: z.string().uuid(),
+  quantity: z.number().positive(),
+  note: z.string().min(1).optional(),
+});
+export type RecordTransfer = z.infer<typeof RecordTransferSchema>;
+
+export const StockMovementSchema = z.object({
+  id: z.string().uuid(),
+  branchId: z.string().uuid(),
+  storageLocationId: z.string().uuid(),
+  itemId: z.string().uuid(),
+  movementType: MovementTypeSchema,
+  quantityDelta: z.number(),
+  transferGroupId: z.string().uuid().nullable(),
+  note: z.string().nullable(),
+  actorUserId: z.string().uuid(),
+  createdAt: z.string(),
+});
+export type StockMovement = z.infer<typeof StockMovementSchema>;
+
+export const ListStockMovementsQuerySchema = z.object({
+  branchId: z.string().uuid().optional(),
+  storageLocationId: z.string().uuid().optional(),
+  itemId: z.string().uuid().optional(),
+  movementType: MovementTypeSchema.optional(),
+  cursor: z.string().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+});
+export type ListStockMovementsQuery = z.infer<typeof ListStockMovementsQuerySchema>;
+
+export const StockMovementPageSchema = pageResponseSchema(StockMovementSchema);
+export type StockMovementPage = z.infer<typeof StockMovementPageSchema>;

@@ -11,10 +11,15 @@ import { DeliveryDetailsController } from "./delivery-details.controller.js";
 import { DeliveryDetailsService } from "./delivery-details.service.js";
 import { DeliveryRidersController } from "./delivery-riders.controller.js";
 import { DeliveryRidersService } from "./delivery-riders.service.js";
+import { DeviceAuthGuard } from "./device-auth.guard.js";
+import { DeviceService } from "./device.service.js";
 import { DiscountLimitsController, DiscountReasonCodesController, OrderDiscountController, OrderItemDiscountController } from "./discounts.controller.js";
 import { DiscountsService } from "./discounts.service.js";
 import { InvoiceListController, InvoicesController } from "./invoices.controller.js";
 import { InvoicesService } from "./invoices.service.js";
+import { KitchenTicketsController } from "./kitchen-tickets.controller.js";
+import { KitchenTicketsTerminalController } from "./kitchen-tickets-terminal.controller.js";
+import { KitchenTicketsService } from "./kitchen-tickets.service.js";
 import { MANAGER_PIN_OPTIONS, ManagerPinService } from "./manager-pin.service.js";
 import { OrderItemsController } from "./order-items.controller.js";
 import { OrderItemsService } from "./order-items.service.js";
@@ -88,6 +93,8 @@ export class OrdersModule {
         ShiftReportsController,
         BusinessDaysController,
         ReceiptSettingsLookupController,
+        KitchenTicketsController,
+        KitchenTicketsTerminalController,
       ],
       providers: [
         OrdersService,
@@ -115,6 +122,13 @@ export class OrdersModule {
         ServiceChargeSettingsService,
         TaxCalculationService,
         AuditLogService,
+        KitchenTicketsService,
+        // P3-03: KitchenTicketsTerminalController's @UseGuards(DeviceAuthGuard)
+        // needs Nest's DI to resolve DeviceService for it — same "provide its
+        // own copy" reasoning as this module's other shared services, rather
+        // than importing DevicesTerminalModule wholesale for one guard.
+        DeviceService,
+        DeviceAuthGuard,
         // P2-26: InvoicesService.generate enqueues an "invoice.generated"
         // outbox event in the same transaction as the invoice itself —
         // without this provider, its @Optional() OutboxService stays

@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import {
@@ -11,11 +12,15 @@ import {
   type ModifierGroup,
   type ModifierOption,
 } from "../shared/menu-client.js";
+import { getDeviceIdentity } from "../shared/device-identity-client.js";
+import { connectToBranchHub } from "../shared/hub-connection.js";
+import type { HubClient } from "../shared/hub-client.js";
 import { completeOfflineSale } from "../shared/offline-sale-client.js";
 import { addLine, modifierToCartLineModifier, removeLine, type CartLine } from "./cart.js";
 import { CartPanel, type CheckoutStatus } from "./CartPanel.js";
 import { CategoryGrid } from "./CategoryGrid.js";
 import { ModifierPicker } from "./ModifierPicker.js";
+import { buildOfflineKitchenTicket, offlineTicketEntityId } from "./offline-kitchen-ticket.js";
 import { ProductGrid } from "./ProductGrid.js";
 import { useBarcodeScanner } from "./useBarcodeScanner.js";
 import { useKeyboardShortcuts } from "./useKeyboardShortcuts.js";
@@ -63,6 +68,49 @@ export function PosScreen(): ReactElement {
   // than creating a duplicate one. Cleared only once that attempt actually
   // succeeds, so the *next* sale gets a fresh key.
   const checkoutIdempotencyKeyRef = useRef<string | null>(null);
+
+  // P3-05: a stable id for this cart session, used only as the hub relay's
+  // ticket orderId (there is no real server-side order yet — see
+  // offline-kitchen-ticket.ts). Regenerated once the sale actually
+  // completes, same lifecycle as checkoutIdempotencyKeyRef's own reset.
+  const draftOrderIdRef = useRef<string>(crypto.randomUUID());
+  const [firedLineIds, setFiredLineIds] = useState<Set<string>>(new Set());
+  const [rushNextFire, setRushNextFire] = useState(false);
+  const hubClientRef = useRef<HubClient | null>(null);
+  const [hubConnected, setHubConnected] = useState(false);
+  // No real server-assigned device id is known client-side (only
+  // branch/terminal numbers) — this is only ever shown to a human as
+  // "who sent this," never used for auth (the hub already verified this
+  // connection's token), so a stable, available label is enough.
+  const deviceLabelRef = useRef<string>("pos-terminal");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [deviceToken, identity] = await Promise.all([invoke<string | null>("get_device_token"), getDeviceIdentity()]);
+      if (cancelled || !deviceToken || !identity?.restaurantId) return;
+      deviceLabelRef.current = `pos-b${identity.branchNumber}-t${identity.terminalNumber}`;
+      const client = await connectToBranchHub(identity.restaurantId, deviceToken, {
+        onConnectionStateChange: (state) => {
+          if (!cancelled) setHubConnected(state === "open");
+        },
+      });
+      if (cancelled) {
+        client?.close();
+        return;
+      }
+      hubClientRef.current = client;
+      setHubConnected(client?.getConnectionState() === "open");
+    })().catch(() => {
+      // No hub reachable — kitchen tickets just won't relay over the LAN;
+      // never block the POS screen itself over this (rule 14).
+    });
+    return () => {
+      cancelled = true;
+      hubClientRef.current?.close();
+      hubClientRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -155,11 +203,33 @@ export function PosScreen(): ReactElement {
         setCheckoutStatus({ kind: "success", invoice });
         setCartLines([]);
         checkoutIdempotencyKeyRef.current = null;
+        draftOrderIdRef.current = crypto.randomUUID();
+        setFiredLineIds(new Set());
       })
       .catch((error: unknown) => {
         setCheckoutStatus({ kind: "error", message: error instanceof Error ? error.message : "Couldn't complete the sale." });
       });
   }, [cartLines, checkoutStatus.kind]);
+
+  /** P3-05: fires every not-yet-fired cart line to the kitchen over the
+   * branch hub — purely a LAN relay, no cloud call at all, since there is
+   * no real server-side order for an in-progress offline sale to attach a
+   * fire event to (see offline-kitchen-ticket.ts). A no-op, not an error,
+   * when the hub isn't reachable or every line is already fired. */
+  const handleFireToKitchen = useCallback(() => {
+    const unfired = cartLines.filter((line) => !firedLineIds.has(line.lineId));
+    if (unfired.length === 0) return;
+    const ticket = buildOfflineKitchenTicket(draftOrderIdRef.current, unfired, rushNextFire);
+    hubClientRef.current?.send({
+      entityKind: "kitchen_ticket",
+      entityId: offlineTicketEntityId(ticket),
+      version: Date.now(),
+      originDeviceId: deviceLabelRef.current,
+      payload: ticket,
+    });
+    setFiredLineIds((ids) => new Set([...ids, ...unfired.map((line) => line.lineId)]));
+    setRushNextFire(false);
+  }, [cartLines, firedLineIds, rushNextFire]);
 
   const handleScan = useCallback(
     (code: string) => {
@@ -255,6 +325,11 @@ export function PosScreen(): ReactElement {
           onRemove={(lineId) => setCartLines((lines) => removeLine(lines, lineId))}
           onCheckout={handleCheckout}
           checkoutStatus={checkoutStatus}
+          firedLineIds={firedLineIds}
+          onFireToKitchen={handleFireToKitchen}
+          rush={rushNextFire}
+          onRushChange={setRushNextFire}
+          hubConnected={hubConnected}
         />
       </div>
 

@@ -51,8 +51,13 @@ export function PairingGate({ deviceLabel, children }: PairingGateProps): ReactE
       );
       await invoke("store_device_token", { token: response.deviceToken });
       // P2-45: so an offline sale can mint a P1-28 document number with no
-      // network call — see device_identity.rs's own docs.
-      await invoke("save_device_identity", { branchNumber: response.device.branchNumber, terminalNumber: response.device.terminalNumber });
+      // network call — see device_identity.rs's own docs. P3-05 added
+      // restaurantId, to scope branch-hub discovery offline.
+      await invoke("save_device_identity", {
+        branchNumber: response.device.branchNumber,
+        terminalNumber: response.device.terminalNumber,
+        restaurantId: response.device.restaurantId,
+      });
       setStatus({ kind: "paired" });
     } catch (error) {
       setStatus({ kind: "error", message: errorMessage(error) });

@@ -35,7 +35,19 @@ function render(
   document.body.appendChild(container);
   root = createRoot(container);
   act(() => {
-    root?.render(<CartPanel lines={lines} onRemove={onRemove} onCheckout={onCheckout} checkoutStatus={checkoutStatus} />);
+    root?.render(
+      <CartPanel
+        lines={lines}
+        onRemove={onRemove}
+        onCheckout={onCheckout}
+        checkoutStatus={checkoutStatus}
+        firedLineIds={new Set()}
+        onFireToKitchen={vi.fn()}
+        rush={false}
+        onRushChange={vi.fn()}
+        hubConnected={false}
+      />,
+    );
   });
 }
 

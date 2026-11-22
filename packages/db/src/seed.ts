@@ -24,6 +24,9 @@ export const PERMISSION_SEED = [
   { key: "tables.manage", description: "Manage floors, tables and table QR codes" },
   { key: "credit.manage", description: "Create credit customers and set their credit limits" },
   { key: "business_day.manage", description: "Close a branch's business day" },
+  { key: "kitchen.manage", description: "Manage kitchen stations and routing rules" },
+  { key: "kitchen.view", description: "View kitchen tickets — no money fields are ever exposed through this permission" },
+  { key: "inventory.manage", description: "Manage inventory categories, items and storage locations" },
 ] as const;
 
 // Which seeded permissions each role gets by default. Kitchen staff gets none of these —
@@ -34,13 +37,38 @@ export const PERMISSION_SEED = [
 // screen or kitchen-specific permission set for it to join yet. tables.manage (P2-07)
 // goes to branch_manager, not settings.manage (branch CRUD/devices/invitations) — day to
 // day floor-plan edits are an operational branch concern, same tier as menu.manage,
-// not the org-structural tier settings.manage otherwise gates.
+// not the org-structural tier settings.manage otherwise gates. kitchen.manage (P3-01)
+// is station/routing setup, not the runtime bump/recall/rush permissions kitchen_staff
+// will need once the kitchen screen (P3-03) exists — same tier and reasoning as
+// tables.manage, still not granted to kitchen_staff. kitchen.view (P3-02) is the
+// first permission kitchen_staff actually gets: read-only kitchen tickets, which
+// KitchenTicketsService guarantees carry no money field at all (rule 18) — the
+// reasoning that kept every earlier permission away from this role doesn't apply
+// to a surface that structurally can't expose a price. inventory.manage (P3-07)
+// is catalog/config setup for raw stock items, same tier as menu.manage/
+// tables.manage/kitchen.manage — not the same permission as inventory.adjust
+// (an operational stock-count correction, already seeded, different concern).
 export const ROLE_PERMISSIONS: Readonly<Record<string, readonly string[]>> = {
   super_admin: PERMISSION_SEED.map((p) => p.key),
   owner: PERMISSION_SEED.map((p) => p.key),
-  branch_manager: ["pos.sell", "pos.void.approve", "pos.discount.approve", "billing.refund.approve", "inventory.adjust", "reports.view", "menu.manage", "pos.mark_out_of_stock", "tables.manage", "credit.manage", "business_day.manage"],
+  branch_manager: [
+    "pos.sell",
+    "pos.void.approve",
+    "pos.discount.approve",
+    "billing.refund.approve",
+    "inventory.adjust",
+    "reports.view",
+    "menu.manage",
+    "pos.mark_out_of_stock",
+    "tables.manage",
+    "credit.manage",
+    "business_day.manage",
+    "kitchen.manage",
+    "kitchen.view",
+    "inventory.manage",
+  ],
   cashier: ["pos.sell", "pos.mark_out_of_stock"],
-  kitchen_staff: [],
+  kitchen_staff: ["kitchen.view"],
 };
 
 export interface SeedResult {

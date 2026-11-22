@@ -37,9 +37,20 @@ pub fn clear_device_token(db_state: State<DbState>) -> Result<(), String> {
 /// P2-45: called by the pairing screen alongside store_device_token, with the
 /// same `POST /devices/pair` response's branchNumber/terminalNumber — what an
 /// offline sale needs to mint a P1-28 document number with no network call.
+/// P3-05 added restaurant_id, for scoping branch-hub discovery offline.
 #[tauri::command]
-pub fn save_device_identity(db_state: State<DbState>, branch_number: i64, terminal_number: i64) -> Result<(), String> {
+pub fn save_device_identity(db_state: State<DbState>, branch_number: i64, terminal_number: i64, restaurant_id: String) -> Result<(), String> {
     let guard = db_state.0.lock().map_err(|e| e.to_string())?;
     let conn = guard.as_ref().ok_or_else(|| "local database unavailable".to_string())?;
-    device_identity::save(conn, DeviceIdentity { branch_number, terminal_number }).map_err(|e| e.to_string())
+    device_identity::save(conn, DeviceIdentity { branch_number, terminal_number, restaurant_id: Some(restaurant_id) }).map_err(|e| e.to_string())
+}
+
+/// P3-05: the Kitchen Display and POS screen both need this terminal's own
+/// restaurantId to scope branch-hub discovery — exposed here rather than
+/// making every caller reach into secure storage/local SQLite directly.
+#[tauri::command]
+pub fn get_device_identity(db_state: State<DbState>) -> Result<Option<DeviceIdentity>, String> {
+    let guard = db_state.0.lock().map_err(|e| e.to_string())?;
+    let conn = guard.as_ref().ok_or_else(|| "local database unavailable".to_string())?;
+    device_identity::load(conn).map_err(|e| e.to_string())
 }

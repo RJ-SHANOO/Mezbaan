@@ -338,7 +338,7 @@ mod tests {
     }
 
     fn paired(conn: &Connection) {
-        device_identity::save(conn, DeviceIdentity { branch_number: 1, terminal_number: 2 }).unwrap();
+        device_identity::save(conn, DeviceIdentity { branch_number: 1, terminal_number: 2, restaurant_id: Some("test-restaurant".to_string()) }).unwrap();
     }
 
     fn synced_tax_config(conn: &Connection, order_type: &str, tax_rate_basis_points: i64, service_charge_rate_basis_points: Option<i64>, service_charge_is_taxable: Option<bool>) {

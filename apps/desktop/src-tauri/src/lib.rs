@@ -11,6 +11,8 @@ mod hub_discovery;
 mod hub_roster;
 mod hub_server;
 mod hub_state;
+mod kitchen_ticket_commands;
+mod kitchen_ticket_template;
 mod manager_pin_offline;
 mod menu_cache;
 mod menu_commands;
@@ -58,6 +60,7 @@ pub fn run() {
             device_token::get_device_token,
             device_token::clear_device_token,
             device_token::save_device_identity,
+            device_token::get_device_identity,
             update_commands::rollback_status,
             update_commands::confirm_boot_successful,
             pending_work_commands::save_pending_work,
@@ -86,6 +89,7 @@ pub fn run() {
             printer_settings_commands::load_printer_config,
             printer_settings_commands::clear_printer_config,
             receipt_commands::render_receipt,
+            kitchen_ticket_commands::render_kitchen_ticket,
             hub_commands::start_hub,
             hub_commands::stop_hub,
             hub_commands::get_hub_status,

@@ -51,3 +51,9 @@ export function clearPrinterConfig(): Promise<void> {
 export function getPrintQueueStatus(): Promise<QueueStatusSummary> {
   return invoke<QueueStatusSummary>("get_print_queue_status");
 }
+
+/** P2-32: hands already-rendered ESC/POS bytes to the persistent, retrying
+ * local print queue — never sent directly from the caller. */
+export function enqueuePrintJob(connection: PrinterConnectionConfig, data: number[]): Promise<string> {
+  return invoke<string>("enqueue_print_job", { connection, data });
+}

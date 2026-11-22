@@ -32,6 +32,7 @@ export const FireOrderItemsSchema = z
   .object({
     itemIds: z.array(z.string().uuid()).min(1).optional(),
     course: z.string().min(1).optional(),
+    rush: z.boolean().optional(),
   })
   .refine((data) => (data.itemIds !== undefined) !== (data.course !== undefined), {
     message: "exactly one of itemIds or course must be given",
@@ -63,6 +64,7 @@ export const OrderItemSchema = z.object({
   course: z.string().nullable(),
   firedAt: z.string().nullable(),
   firedByUserId: z.string().uuid().nullable(),
+  rush: z.boolean(),
   invoiceId: z.string().uuid().nullable(),
   discountPercentBasisPoints: z.number().int().nullable(),
   discountAmountMinor: UnitPriceMinorSchema.nullable(),

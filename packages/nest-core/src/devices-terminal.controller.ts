@@ -7,6 +7,7 @@ import { parseOrBadRequest } from "./validation.js";
 function toDeviceResponse(device: DeviceRecord): Device {
   return DeviceSchema.parse({
     id: device.id,
+    restaurantId: device.restaurantId,
     branchId: device.branchId,
     label: device.label,
     deviceType: device.deviceType,

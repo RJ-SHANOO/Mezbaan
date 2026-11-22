@@ -82,6 +82,7 @@ describe("PairingGate", () => {
             deviceToken: "r1.newtoken",
             device: {
               id: "11111111-1111-7111-8111-111111111111",
+              restaurantId: "33333333-3333-7333-8333-333333333333",
               branchId: "22222222-2222-7222-8222-222222222222",
               label: "Front Counter",
               deviceType: "pos_terminal",
@@ -117,7 +118,7 @@ describe("PairingGate", () => {
 
     expect(el.textContent).toContain("pos content");
     expect(invokeMock).toHaveBeenCalledWith("store_device_token", { token: "r1.newtoken" });
-    expect(invokeMock).toHaveBeenCalledWith("save_device_identity", { branchNumber: 1, terminalNumber: 1 });
+    expect(invokeMock).toHaveBeenCalledWith("save_device_identity", { branchNumber: 1, terminalNumber: 1, restaurantId: "33333333-3333-7333-8333-333333333333" });
   });
 
   it("shows a readable error when the pairing code is rejected, without storing anything", async () => {

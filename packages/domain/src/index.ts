@@ -29,3 +29,4 @@ export {
   canTransitionOrderStatus,
   assertCanTransitionOrderStatus,
 } from "./order-state-machine.js";
+export { convertQuantity } from "./quantity.js";

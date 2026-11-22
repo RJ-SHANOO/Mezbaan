@@ -25,6 +25,7 @@ export function toItemResponse(item: OrderItemRecord): OrderItem {
     course: item.course,
     firedAt: item.firedAt?.toISOString() ?? null,
     firedByUserId: item.firedByUserId,
+    rush: item.rush,
     invoiceId: item.invoiceId,
     discountPercentBasisPoints: item.discountPercentBasisPoints,
     discountAmountMinor: item.discountAmountMinor?.toString() ?? null,
@@ -82,6 +83,7 @@ export class OrderItemsController {
       orderId,
       itemIds: request.itemIds,
       course: request.course,
+      rush: request.rush,
     });
     return items.map(toItemResponse);
   }

@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { schema, withTenant, type Database } from "@mezbaan/db";
 import { AuditLogService } from "./audit-log.service.js";
 import { DATABASE } from "./db.module.js";
@@ -28,6 +28,8 @@ export interface OrderItemRecord {
   course: string | null;
   firedAt: Date | null;
   firedByUserId: string | null;
+  /** P3-02: set at fire time — see OrderItemsService.fireItems. */
+  rush: boolean;
   /** P2-21: which split invoice billed this item, if any — null until InvoicesService.generate covers it. */
   invoiceId: string | null;
   /** P2-22: at most one of these two is set — see DiscountsService.applyItemDiscount. */
@@ -82,6 +84,7 @@ export interface FireOrderItemsParams {
   orderId: string;
   itemIds?: string[];
   course?: string;
+  rush?: boolean;
 }
 
 const EXACTLY_ONE_REFERENCE = "exactly one of productId or variantId must be set";
@@ -127,7 +130,7 @@ export class OrderItemsService {
     }
 
     return withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
-      const order = await this.requireOpenOrder(tx, params.orderId);
+      const order = await this.requireOpenOrder(tx, params.restaurantId, params.orderId);
 
       const priced = await this.priceResolutionService.resolvePrice({
         restaurantId: params.restaurantId,
@@ -197,7 +200,7 @@ export class OrderItemsService {
 
   async updateItem(params: UpdateOrderItemParams): Promise<OrderItemRecord> {
     return withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
-      await this.requireOpenOrder(tx, params.orderId);
+      await this.requireOpenOrder(tx, params.restaurantId, params.orderId);
 
       const rows = await tx
         .update(schema.orderItems)
@@ -224,7 +227,7 @@ export class OrderItemsService {
 
   async removeItem(params: RemoveOrderItemParams): Promise<void> {
     await withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
-      await this.requireOpenOrder(tx, params.orderId);
+      await this.requireOpenOrder(tx, params.restaurantId, params.orderId);
 
       // P2-23: once an item has been fired, deleting it outright would bypass
       // VoidsService's whole reason-code/manager-approval gate (rule 6: a void
@@ -252,9 +255,10 @@ export class OrderItemsService {
    * (or whole course) that's already fully sent raises ALREADY_FIRED rather
    * than silently re-announcing it, but a *partially* fired course only
    * fires whatever's left, so firing the same course again after adding a
-   * new item just sends the new one. No "no money fields" kitchen ticket
-   * exists yet (that's P3-02); this is purely the POS-side record of what
-   * was sent and when.
+   * new item just sends the new one. An optional rush flag is stamped onto
+   * every item actually fired by this call (P3-02) — KitchenTicketsService
+   * is the money-free read side that surfaces it, add-ons and void status
+   * to the kitchen.
    */
   async fireItems(params: FireOrderItemsParams): Promise<OrderItemRecord[]> {
     if ((params.itemIds !== undefined) === (params.course !== undefined)) {
@@ -265,7 +269,7 @@ export class OrderItemsService {
     }
 
     return withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
-      await this.requireOpenOrder(tx, params.orderId);
+      await this.requireOpenOrder(tx, params.restaurantId, params.orderId);
 
       const existingItems = await tx.select().from(schema.orderItems).where(eq(schema.orderItems.orderId, params.orderId));
 
@@ -289,7 +293,7 @@ export class OrderItemsService {
       const unfiredItemIds = unfiredItems.map((item) => item.id);
       await tx
         .update(schema.orderItems)
-        .set({ firedAt, firedByUserId: params.actorUserId, updatedAt: firedAt })
+        .set({ firedAt, firedByUserId: params.actorUserId, rush: params.rush ?? false, updatedAt: firedAt })
         .where(inArray(schema.orderItems.id, unfiredItemIds));
 
       await this.auditLogService.record(
@@ -310,8 +314,12 @@ export class OrderItemsService {
   }
 
   /** Row-locked (P2-16) — every cart mutation (add/update/remove/fire) starts here, so two terminals touching the same order serialize instead of racing. */
-  private async requireOpenOrder(tx: Database, orderId: string): Promise<{ branchId: string; orderType: "dine_in" | "takeaway" | "delivery" }> {
-    const rows = await tx.select().from(schema.orders).where(eq(schema.orders.id, orderId)).for("update");
+  private async requireOpenOrder(tx: Database, restaurantId: string, orderId: string): Promise<{ branchId: string; orderType: "dine_in" | "takeaway" | "delivery" }> {
+    const rows = await tx
+      .select()
+      .from(schema.orders)
+      .where(and(eq(schema.orders.id, orderId), eq(schema.orders.restaurantId, restaurantId)))
+      .for("update");
     const order = rows[0];
     if (!order) throw new NotFoundException(ORDER_NOT_FOUND);
     if (order.status !== "open") throw new BadRequestException(ORDER_NOT_OPEN);

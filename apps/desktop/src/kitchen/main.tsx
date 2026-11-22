@@ -1,8 +1,10 @@
+import { QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BootHealthReporter } from "../shared/BootHealthReporter.js";
 import { ErrorBoundary } from "../shared/ErrorBoundary.js";
 import { PairingGate } from "../shared/PairingGate.js";
+import { queryClient } from "../shared/query-client.js";
 import { UpdateChecker } from "../shared/UpdateChecker.js";
 import { App } from "./App.js";
 import "../index.css";
@@ -15,8 +17,10 @@ createRoot(rootElement).render(
     <ErrorBoundary module="Kitchen">
       <BootHealthReporter />
       <PairingGate deviceLabel="kitchen display">
-        <UpdateChecker />
-        <App />
+        <QueryClientProvider client={queryClient}>
+          <UpdateChecker />
+          <App />
+        </QueryClientProvider>
       </PairingGate>
     </ErrorBoundary>
   </StrictMode>,
