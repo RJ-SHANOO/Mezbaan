@@ -190,6 +190,7 @@ describe("VoidsService.voidItem", () => {
       reasonCode: "mistake",
       managerUserId: managerId,
       managerPin: "4321",
+      stockDisposition: "wastage",
     });
 
     expect(outcome.requiredApproval).toBe(true);
@@ -208,7 +209,7 @@ describe("VoidsService.voidItem", () => {
     await orderItemsService.fireItems({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, orderId, itemIds: [itemId] });
 
     await expect(
-      service.voidItem({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, orderId, itemId, reasonCode: "mistake", managerUserId: managerId, managerPin: "0000" }),
+      service.voidItem({ restaurantId: tenant.restaurantId, actorUserId: tenant.ownerUserId, orderId, itemId, reasonCode: "mistake", managerUserId: managerId, managerPin: "0000", stockDisposition: "wastage" }),
     ).rejects.toThrow(ForbiddenException);
   });
 
