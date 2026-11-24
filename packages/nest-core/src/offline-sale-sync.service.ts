@@ -167,5 +167,15 @@ export class OfflineSaleSyncService {
       { restaurantId: params.restaurantId, aggregateType: "invoice", aggregateId: invoice.id, eventType: "invoice.generated", payload: { invoiceId: invoice.id } },
       tx,
     );
+    // P3-17: same reasoning again — a synced offline sale is exactly a
+    // "synced sale" this task's own title names, so it needs its stock
+    // deducted the same as any invoice InvoicesService.generate produces.
+    // This is deliberately NOT built on InvoicesService.generate (see this
+    // file's own docs for why), so the event has to be enqueued here too
+    // rather than inherited for free.
+    await this.outboxService?.record(
+      { restaurantId: params.restaurantId, aggregateType: "invoice", aggregateId: invoice.id, eventType: "invoice.stock_deduct", payload: { invoiceId: invoice.id } },
+      tx,
+    );
   }
 }

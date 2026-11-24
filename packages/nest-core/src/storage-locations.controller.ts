@@ -14,6 +14,7 @@ function toLocationResponse(location: StorageLocationRecord): StorageLocation {
     branchId: location.branchId,
     name: location.name,
     sortOrder: location.sortOrder,
+    isSaleDeductionDefault: location.isSaleDeductionDefault,
     createdAt: location.createdAt.toISOString(),
     updatedAt: location.updatedAt.toISOString(),
   };

@@ -66,6 +66,7 @@ export class OrderItemVoidController {
       reasonCode: request.reasonCode,
       managerUserId: request.managerUserId,
       managerPin: request.managerPin,
+      stockDisposition: request.stockDisposition,
     });
     return toOutcomeResponse(outcome);
   }

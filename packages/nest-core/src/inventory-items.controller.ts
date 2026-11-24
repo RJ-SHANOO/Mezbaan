@@ -17,6 +17,7 @@ function toItemResponse(item: InventoryItemRecord): InventoryItem {
     barcode: item.barcode,
     baseUnitId: item.baseUnitId,
     purchaseUnitId: item.purchaseUnitId,
+    itemType: item.itemType,
     status: item.status,
     createdAt: item.createdAt.toISOString(),
     updatedAt: item.updatedAt.toISOString(),

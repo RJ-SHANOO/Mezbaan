@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { BadRequestException } from "@nestjs/common";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { createDb, createPool, schema, withTenant, type Database } from "@mezbaan/db";
 import type { Pool } from "pg";
 import { AuditLogService } from "./audit-log.service.js";
@@ -250,7 +250,12 @@ describe("InvoicesService.generate — enqueues a reconciliation job (P2-26)", (
 
     const invoice = await invoicesServiceWithOutbox.generate({ restaurantId: tenant.restaurantId, orderId, deviceId, actorUserId: tenant.ownerUserId });
 
-    const outboxRows = await withTenant(db, { restaurantId: tenant.restaurantId }, (tx) => tx.select().from(schema.outbox).where(eq(schema.outbox.aggregateId, invoice.id)));
+    // P3-17 added a second, separate "invoice.stock_deduct" outbox row for the
+    // same invoice — filtering by eventType keeps this test scoped to the
+    // reconciliation row it's actually about.
+    const outboxRows = await withTenant(db, { restaurantId: tenant.restaurantId }, (tx) =>
+      tx.select().from(schema.outbox).where(and(eq(schema.outbox.aggregateId, invoice.id), eq(schema.outbox.eventType, "invoice.generated"))),
+    );
     expect(outboxRows).toHaveLength(1);
     expect(outboxRows[0]!.eventType).toBe("invoice.generated");
     expect(outboxRows[0]!.aggregateType).toBe("invoice");

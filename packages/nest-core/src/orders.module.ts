@@ -30,6 +30,10 @@ import { InvoiceBalanceController, InvoiceSplitController, PaymentsController } 
 import { PaymentsService } from "./payments.service.js";
 import { PermissionsService } from "./permissions.service.js";
 import { PriceResolutionService } from "./price-resolution.service.js";
+import { NegativeStockFlagsService } from "./negative-stock-flags.service.js";
+import { RecipesService } from "./recipes.service.js";
+import { StockLedgerService } from "./stock-ledger.service.js";
+import { StockLevelsService } from "./stock-levels.service.js";
 import { ServiceChargeSettingsService } from "./service-charge-settings.service.js";
 import { TaxCalculationService } from "./tax-calculation.service.js";
 import { ReceiptSettingsLookupController } from "./receipt-settings.controller.js";
@@ -134,6 +138,13 @@ export class OrdersModule {
         // without this provider, its @Optional() OutboxService stays
         // undefined and no reconciliation job is ever enqueued.
         OutboxService,
+        // P3-18: VoidsService/RefundsService's own stock disposition
+        // (return to stock or wastage) needs the same recipe-expansion and
+        // stock-ledger primitives P3-16/P3-17 already built.
+        RecipesService,
+        StockLevelsService,
+        NegativeStockFlagsService,
+        StockLedgerService,
       ],
       exports: [OrdersService, DeliveryRidersService, DeliveryDetailsService, OrderItemsService, InvoicesService, PaymentsService, DiscountsService, VoidsService, RefundsService, CreditCustomersService, ShiftsService, CashMovementsService, ShiftReportsService, BusinessDaysService, ReceiptSettingsService],
     };

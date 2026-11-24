@@ -240,6 +240,13 @@ export class InvoicesService {
         { restaurantId: params.restaurantId, aggregateType: "invoice", aggregateId: invoice.id, eventType: "invoice.generated", payload: { invoiceId: invoice.id } },
         tx,
       );
+      // P3-17: a second, separate event in the same transaction — SalesStockDeductionService
+      // is its own handler, independent of reconciliation, so one failing/retrying
+      // never blocks or depends on the other.
+      await this.outboxService?.record(
+        { restaurantId: params.restaurantId, aggregateType: "invoice", aggregateId: invoice.id, eventType: "invoice.stock_deduct", payload: { invoiceId: invoice.id } },
+        tx,
+      );
 
       return toInvoiceRecord(invoice);
     });

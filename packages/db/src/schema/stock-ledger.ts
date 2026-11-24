@@ -1,5 +1,6 @@
 import { bigint, numeric, pgPolicy, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { branches } from "./branches.js";
+import { invoices } from "./invoices.js";
 import { inventoryItems } from "./inventory-items.js";
 import { restaurants } from "./restaurants.js";
 import { tenantMatch } from "./rls.js";
@@ -29,6 +30,15 @@ import { users } from "./users.js";
  * one location's stock changing by exactly one signed amount, with no
  * special case for transfers. Null for every other movement type.
  *
+ * P3-16: `productionBatchId` is the same linking idea for a production
+ * batch — one negative "production" row per ingredient consumed, plus
+ * one positive "production" row for the finished semi-finished item,
+ * all sharing one id. A dedicated column rather than reusing
+ * transferGroupId: the two concepts are unrelated movement shapes (a
+ * transfer is always exactly two rows; a batch is one-per-ingredient
+ * plus one), and transferGroupId is already a live column this task
+ * shouldn't repurpose into a different meaning.
+ *
  * P3-11: `unitCostMinor`/`currency` snapshot what THIS movement's own
  * units were worth at the moment it happened — not necessarily the
  * resulting average. For an increase (purchase/return/production/a
@@ -44,9 +54,15 @@ import { users } from "./users.js";
  * in minor units, computed exclusively via packages/domain's
  * blendWeightedAverageCost — never by hand.
  *
- * No reference to a purchase order, sale or stock count — those tables
- * don't exist yet (P3-17/P3-21/P3-26); `note` is a free-text placeholder
- * for human context until a real typed reference is worth adding.
+ * P3-17: `invoiceId` is the same linking idea again, this time for a sale —
+ * every ingredient a sold item's (and its selected modifiers') recipe
+ * calls for produces one negative "sale" row per distinct ingredient,
+ * all sharing the invoice that caused them (SalesStockDeductionService).
+ * Unlike transferGroupId/productionBatchId this one's a real FK to an
+ * existing document rather than a synthetic id, since the invoice already
+ * exists before deduction runs. Still no reference for a purchase order or
+ * stock count (P3-21/P3-26 respectively); `note` remains the free-text
+ * placeholder for those until a real typed reference is worth adding.
  */
 export const stockLedger = pgTable(
   "stock_ledger",
@@ -69,6 +85,8 @@ export const stockLedger = pgTable(
     }).notNull(),
     quantityDelta: numeric("quantity_delta", { mode: "number", precision: 18, scale: 6 }).notNull(),
     transferGroupId: uuid("transfer_group_id"),
+    productionBatchId: uuid("production_batch_id"),
+    invoiceId: uuid("invoice_id").references(() => invoices.id),
     unitCostMinor: bigint("unit_cost_minor", { mode: "bigint" }),
     currency: text("currency"),
     note: text("note"),

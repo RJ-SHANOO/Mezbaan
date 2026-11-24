@@ -20,6 +20,16 @@ import { units } from "./units.js";
  * (e.g. "carton" for eggs bought a dozen cartons at a time); null means
  * "same as the base unit," not "unset" — not every item is bought in a
  * different unit than it's stocked in.
+ *
+ * P3-15: `itemType` distinguishes a raw, purchased ingredient from a
+ * semi-finished one — a sauce, marinated meat, anything made in-house
+ * rather than bought — which is still just an ordinary inventory item
+ * (it has its own stock level, moves through the same ledger, uses the
+ * "production" movement type that's existed since P3-09) except that it
+ * *also* has its own recipe (recipes.ts's fourth owner kind, `itemId`)
+ * saying what it's made from. RecipesService enforces that only a
+ * "semi_finished" item may own a recipe — a plain CHECK constraint can't
+ * reach across tables to verify that, so it's a service-layer rule.
  */
 export const inventoryItems = pgTable(
   "inventory_items",
@@ -38,6 +48,9 @@ export const inventoryItems = pgTable(
       .notNull()
       .references(() => units.id),
     purchaseUnitId: uuid("purchase_unit_id").references(() => units.id),
+    itemType: text("item_type", { enum: ["raw", "semi_finished"] })
+      .notNull()
+      .default("raw"),
     status: text("status", { enum: ["active", "inactive"] })
       .notNull()
       .default("active"),

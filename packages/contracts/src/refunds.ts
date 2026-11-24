@@ -27,13 +27,24 @@ export const RefundBalanceSchema = z.object({
 });
 export type RefundBalance = z.infer<typeof RefundBalanceSchema>;
 
-/** P2-24: a refund always needs manager approval — managerUserId/managerPin are required, not optional like a discount's own-authority escalation. */
-export const IssueRefundSchema = z.object({
-  amountMinor: MinorUnitsSchema,
-  reasonCode: z.string().min(1),
-  managerUserId: z.string().uuid(),
-  managerPin: z.string().min(1),
-});
+export const RefundStockDispositionSchema = z.enum(["return_to_stock", "wastage"]);
+export type RefundStockDisposition = z.infer<typeof RefundStockDispositionSchema>;
+
+/** P2-24: a refund always needs manager approval — managerUserId/managerPin are required, not optional like a discount's own-authority escalation.
+ * P3-18: itemIds/stockDisposition are given together or not at all — see RefundsService's own docs for why a bare amount-based refund has no stock effect. */
+export const IssueRefundSchema = z
+  .object({
+    amountMinor: MinorUnitsSchema,
+    reasonCode: z.string().min(1),
+    managerUserId: z.string().uuid(),
+    managerPin: z.string().min(1),
+    itemIds: z.array(z.string().uuid()).min(1).optional(),
+    stockDisposition: RefundStockDispositionSchema.optional(),
+  })
+  .refine((data) => (data.itemIds !== undefined) === (data.stockDisposition !== undefined), {
+    message: "itemIds and stockDisposition must be given together, or not at all",
+    path: ["stockDisposition"],
+  });
 export type IssueRefund = z.infer<typeof IssueRefundSchema>;
 
 export const RefundSchema = z.object({

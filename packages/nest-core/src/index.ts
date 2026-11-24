@@ -334,7 +334,16 @@ export {
   type SetVoidReasonCodeParams,
   type VoidItemParams,
   type VoidOutcome as VoidOutcomeRecord,
+  type VoidStockDisposition,
 } from "./voids.service.js";
+export {
+  expandLineIngredients,
+  findDefaultSaleDeductionLocation,
+  computeLineCost,
+  type SoldLine,
+  type SoldLineModifier,
+  type ExpandedLineIngredients,
+} from "./stock-deduction-shared.js";
 export { VoidReasonCodesController, OrderItemVoidController } from "./voids.controller.js";
 export {
   RefundsService,
@@ -343,6 +352,7 @@ export {
   type RefundBalance as RefundBalanceRecord,
   type IssueRefundParams,
   type RefundRecord,
+  type RefundStockDisposition,
 } from "./refunds.service.js";
 export { RefundReasonCodesController, InvoiceRefundsController, InvoiceRefundBalanceController } from "./refunds.controller.js";
 export {
@@ -396,6 +406,117 @@ export { InventoryCategoriesService, type InventoryCategoryRecord, type CreateIn
 export { InventoryCategoriesController } from "./inventory-categories.controller.js";
 export { StorageLocationsService, type StorageLocationRecord, type CreateStorageLocationParams, type UpdateStorageLocationParams } from "./storage-locations.service.js";
 export { StorageLocationsController } from "./storage-locations.controller.js";
+export {
+  SuppliersService,
+  type SupplierRecord,
+  type SupplierStatus,
+  type CreateSupplierParams,
+  type UpdateSupplierParams,
+} from "./suppliers.service.js";
+export { SuppliersController } from "./suppliers.controller.js";
+export {
+  SupplierItemsService,
+  type SupplierItemRecord,
+  type LinkSupplierItemParams,
+  type UpdateSupplierItemParams,
+  type ListSupplierItemsParams,
+} from "./supplier-items.service.js";
+export { SupplierItemsController } from "./supplier-items.controller.js";
+export {
+  SupplierItemPricesService,
+  type SupplierItemPriceRecord,
+  type RecordSupplierItemPriceParams,
+  type ListSupplierItemPricesParams,
+} from "./supplier-item-prices.service.js";
+export { SupplierItemPricesController } from "./supplier-item-prices.controller.js";
+export { SuppliersModule } from "./suppliers.module.js";
+export {
+  PurchaseOrdersService,
+  type PurchaseOrderRecord,
+  type PurchaseOrderItemRecord,
+  type PurchaseOrderStatus,
+  type PurchaseOrderItemInput,
+  type CreatePurchaseOrderParams,
+  type ReplacePurchaseOrderItemsParams,
+  type ApprovePurchaseOrderParams,
+  type MarkPurchaseOrderSentParams,
+  type ListPurchaseOrdersParams,
+} from "./purchase-orders.service.js";
+export { PurchaseOrdersController } from "./purchase-orders.controller.js";
+export { PurchaseOrdersModule } from "./purchase-orders.module.js";
+export {
+  GoodsReceivedNotesService,
+  type GoodsReceivedNoteRecord,
+  type GoodsReceivedNoteItemRecord,
+  type GoodsRejectionReasonCodeRecord,
+  type SetGoodsRejectionReasonCodeParams,
+  type GoodsReceivedNoteItemInput,
+  type RecordGoodsReceivedNoteParams,
+} from "./goods-received-notes.service.js";
+export { GoodsReceivedNotesController, GoodsRejectionReasonCodesController, PurchaseOrderGoodsReceivedNotesController } from "./goods-received-notes.controller.js";
+export { GoodsReceivedNotesModule } from "./goods-received-notes.module.js";
+export {
+  SupplierInvoicesService,
+  type SupplierInvoiceRecord,
+  type SupplierInvoiceItemRecord,
+  type SupplierInvoiceItemInput,
+  type RecordSupplierInvoiceParams,
+  type SupplierInvoiceMatchFlagRecord,
+  type RecordSupplierInvoiceResult,
+  type ListSupplierInvoiceMatchFlagsParams,
+  type ReviewSupplierInvoiceMatchFlagParams,
+} from "./supplier-invoices.service.js";
+export { SupplierInvoicesController, PurchaseOrderSupplierInvoicesController, SupplierInvoiceMatchFlagsController } from "./supplier-invoices.controller.js";
+export { SupplierInvoicesModule } from "./supplier-invoices.module.js";
+export {
+  PurchaseReturnsService,
+  type PurchaseReturnRecord,
+  type PurchaseReturnItemRecord,
+  type PurchaseReturnReasonCodeRecord,
+  type SetPurchaseReturnReasonCodeParams,
+  type PurchaseReturnItemInput,
+  type RecordPurchaseReturnParams,
+} from "./purchase-returns.service.js";
+export { PurchaseReturnsController, PurchaseReturnReasonCodesController, PurchaseOrderPurchaseReturnsController } from "./purchase-returns.controller.js";
+export { PurchaseReturnsModule } from "./purchase-returns.module.js";
+export {
+  SupplierLedgerService,
+  type SupplierLedgerEntryRecord,
+  type SupplierBalance,
+  type RecordInvoiceChargeParams,
+  type RecordSupplierPaymentParams,
+  type ListSupplierLedgerParams,
+} from "./supplier-ledger.service.js";
+export { SupplierLedgerController } from "./supplier-ledger.controller.js";
+export { SupplierLedgerModule } from "./supplier-ledger.module.js";
+export {
+  StockCountsService,
+  type StockCountRecord,
+  type StockCountItemRecord,
+  type StockCountType,
+  type StockCountStatus,
+  type StartStockCountParams,
+  type SubmitLineCountParams,
+  type FinalizeStockCountParams,
+  type ApproveStockCountParams,
+  type ApproveStockCountResult,
+  type ListStockCountsParams,
+} from "./stock-counts.service.js";
+export { StockCountsController } from "./stock-counts.controller.js";
+export { StockCountsModule } from "./stock-counts.module.js";
+export {
+  WastageService,
+  type WastageReasonCodeRecord,
+  type SetWastageReasonCodeParams,
+  type WastageLimitSettingsRecord,
+  type UpdateWastageLimitSettingsParams,
+  type RecordWastageParams,
+  type WastageEntryRecord,
+  type RecordWastageResult,
+  type ListWastageEntriesParams,
+} from "./wastage.service.js";
+export { WastageReasonCodesController, WastageLimitSettingsController, WastageEntriesController } from "./wastage.controller.js";
+export { WastageModule } from "./wastage.module.js";
 export { InventoryItemsService, type InventoryItemRecord, type CreateInventoryItemParams, type UpdateInventoryItemParams } from "./inventory-items.service.js";
 export { InventoryItemsController } from "./inventory-items.controller.js";
 export { UnitsService, type UnitRecord, type CreateUnitParams, type UpdateUnitParams } from "./units.service.js";
@@ -434,6 +555,27 @@ export {
   type ReviewFlagParams,
 } from "./negative-stock-flags.service.js";
 export { NegativeStockFlagsController } from "./negative-stock-flags.controller.js";
+export {
+  RecipesService,
+  type RecipeRecord,
+  type RecipeItemRecord,
+  type CreateOrReplaceRecipeParams,
+  type RecipeItemInputParams,
+  type RecipeOwnerParams,
+  type GetRecipeParams,
+  type DeleteRecipeParams,
+} from "./recipes.service.js";
+export { RecipesController } from "./recipes.controller.js";
+export { RecipesModule } from "./recipes.module.js";
+export { ProductionService, type RecordProductionBatchParams, type ProductionBatchResult as ProductionBatchServiceResult } from "./production.service.js";
+export { ProductionController } from "./production.controller.js";
+export { ProductionModule } from "./production.module.js";
+export { convertItemQuantityToBaseUnit } from "./item-quantity-conversion.js";
+export {
+  SalesStockDeductionService,
+  type DeductStockForInvoiceParams,
+  type DeductStockForInvoiceResult,
+} from "./sales-stock-deduction.service.js";
 export { InventoryModule } from "./inventory.module.js";
 export { ReconciliationService, type ReconciliationFlagRecord } from "./reconciliation.service.js";
 export { ReconciliationFlagsController } from "./reconciliation.controller.js";

@@ -1,0 +1,4 @@
+ALTER TABLE "stock_ledger" ADD COLUMN "invoice_id" uuid;--> statement-breakpoint
+ALTER TABLE "storage_locations" ADD COLUMN "is_sale_deduction_default" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "stock_ledger" ADD CONSTRAINT "stock_ledger_invoice_id_invoices_id_fk" FOREIGN KEY ("invoice_id") REFERENCES "public"."invoices"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "storage_locations_one_sale_default_per_branch_idx" ON "storage_locations" USING btree ("branch_id") WHERE "storage_locations"."is_sale_deduction_default" = true;

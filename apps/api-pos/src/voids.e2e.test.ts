@@ -208,7 +208,7 @@ describe("voids — before and after kitchen firing, with manager approval (api-
       method: "POST",
       url: `/orders/${orderId}/items/${itemId}/void`,
       headers: { authorization: `Bearer ${tenant.accessToken}` },
-      payload: { reasonCode: "mistake", managerUserId: managerId, managerPin: "4321" },
+      payload: { reasonCode: "mistake", managerUserId: managerId, managerPin: "4321", stockDisposition: "wastage" },
     });
     expect(withApproval.statusCode).toBe(201);
     expect(withApproval.json<{ approvedByUserId: string }>().approvedByUserId).toBe(managerId);

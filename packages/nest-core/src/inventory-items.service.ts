@@ -12,6 +12,7 @@ export interface InventoryItemRecord {
   barcode: string | null;
   baseUnitId: string;
   purchaseUnitId: string | null;
+  itemType: "raw" | "semi_finished";
   status: "active" | "inactive";
   createdAt: Date;
   updatedAt: Date;
@@ -26,6 +27,7 @@ export interface CreateInventoryItemParams {
   barcode?: string;
   baseUnitId: string;
   purchaseUnitId?: string;
+  itemType?: "raw" | "semi_finished";
 }
 
 export interface UpdateInventoryItemParams {
@@ -38,6 +40,7 @@ export interface UpdateInventoryItemParams {
   barcode?: string | null;
   baseUnitId?: string;
   purchaseUnitId?: string | null;
+  itemType?: "raw" | "semi_finished";
   status?: "active" | "inactive";
 }
 
@@ -87,6 +90,7 @@ export class InventoryItemsService {
           barcode: params.barcode ?? null,
           baseUnitId: params.baseUnitId,
           purchaseUnitId: params.purchaseUnitId ?? null,
+          itemType: params.itemType ?? "raw",
         })
         .returning();
       const item = rows[0];
@@ -124,6 +128,7 @@ export class InventoryItemsService {
           ...(params.barcode !== undefined && { barcode: params.barcode }),
           ...(params.baseUnitId !== undefined && { baseUnitId: params.baseUnitId }),
           ...(params.purchaseUnitId !== undefined && { purchaseUnitId: params.purchaseUnitId }),
+          ...(params.itemType !== undefined && { itemType: params.itemType }),
           ...(params.status !== undefined && { status: params.status }),
           updatedAt: new Date(),
         })

@@ -1,9 +1,14 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { and, eq } from "drizzle-orm";
 import { schema, withTenant, type Database } from "@mezbaan/db";
 import { AuditLogService } from "./audit-log.service.js";
 import { DATABASE } from "./db.module.js";
 import { ManagerPinService } from "./manager-pin.service.js";
+import { RecipesService } from "./recipes.service.js";
+import { StockLedgerService } from "./stock-ledger.service.js";
+import { expandLineIngredients, findDefaultSaleDeductionLocation } from "./stock-deduction-shared.js";
+
+export type VoidStockDisposition = "return_to_stock" | "wastage";
 
 export interface VoidReasonCodeRecord {
   id: string;
@@ -30,6 +35,9 @@ export interface VoidItemParams {
   reasonCode: string;
   managerUserId?: string;
   managerPin?: string;
+  /** Only meaningful (and required) once the item has already been fired —
+   * see this service's own docs for why a pre-fire void never needs one. */
+  stockDisposition?: VoidStockDisposition;
 }
 
 export interface VoidOutcome {
@@ -44,6 +52,7 @@ const ALREADY_VOIDED = "this item has already been voided";
 const ALREADY_INVOICED = "this item has already been invoiced — a void can't undo a billed item, that's a refund's job";
 const REASON_CODE_NOT_FOUND = "this void reason code doesn't exist or is no longer active";
 const APPROVAL_REQUIRED = "this item has already been fired to the kitchen and needs a manager's approval to void (managerUserId and managerPin)";
+const STOCK_DISPOSITION_REQUIRED = "this item has already been fired to the kitchen — choose whether its ingredients return to stock or are recorded as wastage (stockDisposition)";
 
 /**
  * P2-23: voids an order item before or after it's been fired to the kitchen
@@ -62,13 +71,33 @@ const APPROVAL_REQUIRED = "this item has already been fired to the kitchen and n
  * item. computeOrderTotal (OrdersService) and invoice generation
  * (InvoicesService) both already exclude a voided item from any total or
  * from ever being billed.
+ *
+ * P3-18: a pre-fire void never touches stock — P3-17's deduction only ever
+ * runs once an item is invoiced, and a voided item never gets invoiced
+ * (InvoicesService.generate's own query excludes it), so nothing was ever
+ * deducted for it in the first place. A *post*-fire void is different: the
+ * kitchen already spent real ingredients making it, ingredients P3-17
+ * never recorded either (deduction is invoice-triggered, not fire-
+ * triggered) — so `stockDisposition` is how that gets settled, required
+ * exactly when `requiredApproval` is (the same firedAt check):
+ * "wastage" records a new negative stock_ledger movement for the item's
+ * (and its modifiers') expanded recipe — the first and only time these
+ * ingredients are ever deducted, since the sale path never ran for an
+ * item that was never billed. "return_to_stock" records nothing: the
+ * kitchen marked it fired but the ingredients genuinely weren't used
+ * (e.g. caught before prep actually started), so they're already sitting
+ * in stock, uncounted — there's nothing to reverse.
  */
 @Injectable()
 export class VoidsService {
+  private readonly logger = new Logger(VoidsService.name);
+
   constructor(
     @Inject(DATABASE) private readonly db: Database,
     private readonly auditLogService: AuditLogService,
     private readonly managerPinService: ManagerPinService,
+    private readonly recipesService: RecipesService,
+    private readonly stockLedgerService: StockLedgerService,
   ) {}
 
   async listReasonCodes(restaurantId: string): Promise<VoidReasonCodeRecord[]> {
@@ -118,6 +147,7 @@ export class VoidsService {
       let approvedByUserId: string | null = null;
       if (requiredApproval) {
         if (!params.managerUserId || !params.managerPin) throw new BadRequestException(APPROVAL_REQUIRED);
+        if (!params.stockDisposition) throw new BadRequestException(STOCK_DISPOSITION_REQUIRED);
         await this.managerPinService.approve({
           restaurantId: params.restaurantId,
           branchId: order.branchId,
@@ -141,13 +171,56 @@ export class VoidsService {
           action: "order_item.voided",
           targetType: "order_item",
           targetId: item.id,
-          metadata: { reasonCode: params.reasonCode, firedBeforeVoid: requiredApproval, approvedByUserId },
+          metadata: { reasonCode: params.reasonCode, firedBeforeVoid: requiredApproval, approvedByUserId, stockDisposition: params.stockDisposition ?? null },
         },
         tx,
       );
 
+      if (requiredApproval && params.stockDisposition === "wastage") {
+        await this.recordWastage(tx, params.restaurantId, params.actorUserId, order.branchId, item, params.reasonCode);
+      }
+
       return { requiredApproval, approvedByUserId };
     });
+  }
+
+  /** Expands the voided item's own recipe (plus its modifiers') and
+   * deducts it as wastage — see this service's own docs for why this is
+   * the first time these ingredients are ever recorded against stock. */
+  private async recordWastage(
+    tx: Database,
+    restaurantId: string,
+    actorUserId: string,
+    branchId: string,
+    item: typeof schema.orderItems.$inferSelect,
+    voidReasonCode: string,
+  ): Promise<void> {
+    const defaultLocation = await findDefaultSaleDeductionLocation(tx, branchId);
+    if (!defaultLocation) {
+      this.logger.warn(`order item ${item.id}: branch ${branchId} has no sale-deduction default storage location configured — skipping wastage stock deduction`);
+      return;
+    }
+
+    const modifierRows = await tx.select().from(schema.orderItemModifiers).where(eq(schema.orderItemModifiers.orderItemId, item.id));
+    const { required } = await expandLineIngredients(tx, this.recipesService, restaurantId, {
+      productId: item.productId,
+      variantId: item.variantId,
+      quantity: item.quantity,
+      modifiers: modifierRows.map((modifier) => ({ modifierOptionId: modifier.modifierOptionId, quantity: modifier.quantity })),
+    });
+
+    for (const [itemId, quantity] of required) {
+      if (quantity === 0) continue;
+      await this.stockLedgerService.recordMovementInTx(tx, {
+        restaurantId,
+        actorUserId,
+        storageLocationId: defaultLocation.id,
+        itemId,
+        movementType: "wastage",
+        quantityDelta: -quantity,
+        note: `void: ${voidReasonCode}`,
+      });
+    }
   }
 
   private async requireOpenOrder(tx: Database, restaurantId: string, orderId: string): Promise<{ branchId: string }> {

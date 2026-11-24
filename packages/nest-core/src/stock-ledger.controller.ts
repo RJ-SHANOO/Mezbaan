@@ -14,6 +14,8 @@ function toMovementResponse(movement: StockMovementRecord): StockMovement {
     movementType: movement.movementType,
     quantityDelta: movement.quantityDelta,
     transferGroupId: movement.transferGroupId,
+    productionBatchId: movement.productionBatchId,
+    invoiceId: movement.invoiceId,
     unitCostMinor: movement.unitCostMinor?.toString() ?? null,
     currency: movement.currency,
     note: movement.note,

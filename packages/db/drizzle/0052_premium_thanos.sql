@@ -1,0 +1,1 @@
+ALTER TABLE "stock_ledger" ADD COLUMN "production_batch_id" uuid;

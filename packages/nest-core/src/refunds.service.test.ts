@@ -17,7 +17,11 @@ import { PriceListItemsService } from "./price-list-items.service.js";
 import { PriceListsService } from "./price-lists.service.js";
 import { PriceResolutionService } from "./price-resolution.service.js";
 import { ProductsService } from "./products.service.js";
+import { RecipesService } from "./recipes.service.js";
 import { RefundsService } from "./refunds.service.js";
+import { StockLedgerService } from "./stock-ledger.service.js";
+import { StockLevelsService } from "./stock-levels.service.js";
+import { NegativeStockFlagsService } from "./negative-stock-flags.service.js";
 import { ServiceChargeSettingsService } from "./service-charge-settings.service.js";
 import { TaxCalculationService } from "./tax-calculation.service.js";
 import { TaxRulesService } from "./tax-rules.service.js";
@@ -62,7 +66,11 @@ beforeAll(async () => {
   const paymentMethodSettingsService = new PaymentMethodSettingsService(db, auditLogService);
   paymentsService = new PaymentsService(db, auditLogService, paymentMethodSettingsService);
   managerPinService = new ManagerPinService(db, permissionsService, auditLogService, {});
-  service = new RefundsService(db, auditLogService, managerPinService);
+  const recipesService = new RecipesService(db, auditLogService);
+  const stockLevelsService = new StockLevelsService(db);
+  const negativeStockFlagsService = new NegativeStockFlagsService(db, auditLogService);
+  const stockLedgerService = new StockLedgerService(db, auditLogService, stockLevelsService, negativeStockFlagsService);
+  service = new RefundsService(db, auditLogService, managerPinService, recipesService, stockLedgerService);
 
   // Same "don't depend on seed.ts having run" reasoning as discounts/voids tests —
   // grant the real billing.refund.approve key directly, idempotently, since

@@ -87,6 +87,8 @@ export class InvoiceRefundsController {
       reasonCode: request.reasonCode,
       managerUserId: request.managerUserId,
       managerPin: request.managerPin,
+      itemIds: request.itemIds,
+      stockDisposition: request.stockDisposition,
     });
     return toRefundResponse(refund);
   }

@@ -18,6 +18,8 @@ export interface StockMovementRecord {
   movementType: MovementType;
   quantityDelta: number;
   transferGroupId: string | null;
+  productionBatchId: string | null;
+  invoiceId: string | null;
   unitCostMinor: bigint | null;
   currency: string | null;
   note: string | null;
@@ -38,6 +40,14 @@ export interface RecordMovementParams {
    * current average instead (see StockLevelsService.applyDelta). */
   unitCostMinor?: bigint;
   currency?: string;
+  /** P3-16: links this row to the other stock_ledger rows one production
+   * batch produces (its consumed ingredients, plus the finished item's own
+   * entry) — see stock-ledger.ts's own docs. Null for every other caller. */
+  productionBatchId?: string;
+  /** P3-17: links this row to the other stock_ledger rows one invoice's
+   * sale deduction produces (one per distinct ingredient) — see
+   * stock-ledger.ts's own docs. Null for every other caller. */
+  invoiceId?: string;
   note?: string;
 }
 
@@ -57,6 +67,8 @@ export interface ListMovementsParams {
   storageLocationId?: string;
   itemId?: string;
   movementType?: MovementType;
+  productionBatchId?: string;
+  invoiceId?: string;
   cursor?: string;
   limit?: number;
 }
@@ -101,68 +113,80 @@ export class StockLedgerService {
   ) {}
 
   async recordMovement(params: RecordMovementParams): Promise<StockMovementRecord> {
+    return withTenant(this.db, { restaurantId: params.restaurantId }, (tx) => this.recordMovementInTx(tx, params));
+  }
+
+  /**
+   * Same as `recordMovement`, but runs inside a `tx` the caller already
+   * has open — for a multi-step write that must all-or-nothing commit
+   * together across more than one call (P3-16's production batches:
+   * several ingredient deductions plus one finished-stock increase, all
+   * one atomic unit). `recordMovement` itself is just this wrapped in its
+   * own transaction, for every ordinary single-movement caller.
+   */
+  async recordMovementInTx(tx: Database, params: RecordMovementParams): Promise<StockMovementRecord> {
     if (params.quantityDelta === 0) throw new BadRequestException(QUANTITY_ZERO);
 
-    return withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
-      await this.requireItem(tx, params.itemId);
-      const location = await this.requireLocation(tx, params.storageLocationId);
+    await this.requireItem(tx, params.itemId);
+    const location = await this.requireLocation(tx, params.storageLocationId);
 
-      const snapshot = await this.stockLevelsService.applyDelta(tx, {
+    const snapshot = await this.stockLevelsService.applyDelta(tx, {
+      restaurantId: params.restaurantId,
+      branchId: location.branchId,
+      storageLocationId: params.storageLocationId,
+      itemId: params.itemId,
+      quantityDelta: params.quantityDelta,
+      unitCostMinor: params.unitCostMinor,
+      currency: params.currency,
+    });
+
+    const rows = await tx
+      .insert(schema.stockLedger)
+      .values({
         restaurantId: params.restaurantId,
         branchId: location.branchId,
         storageLocationId: params.storageLocationId,
         itemId: params.itemId,
+        movementType: params.movementType,
         quantityDelta: params.quantityDelta,
-        unitCostMinor: params.unitCostMinor,
-        currency: params.currency,
+        productionBatchId: params.productionBatchId ?? null,
+        invoiceId: params.invoiceId ?? null,
+        unitCostMinor: snapshot.unitCostMinor,
+        currency: snapshot.currency,
+        note: params.note ?? null,
+        actorUserId: params.actorUserId,
+      })
+      .returning();
+    const movement = rows[0];
+    if (!movement) throw new Error("recordMovement: insert returned no row");
+
+    await this.auditLogService.record(
+      {
+        restaurantId: params.restaurantId,
+        branchId: movement.branchId,
+        actorUserId: params.actorUserId,
+        action: "stock_ledger.movement_recorded",
+        targetType: "stock_ledger",
+        targetId: movement.id,
+        metadata: { itemId: movement.itemId, movementType: movement.movementType, quantityDelta: movement.quantityDelta, storageLocationId: movement.storageLocationId },
+      },
+      tx,
+    );
+
+    // Rule 12: never block the sale/movement itself — this only ever
+    // flags it for later review, after it's already recorded.
+    if (snapshot.newQuantity < 0) {
+      await this.negativeStockFlagsService.create(tx, {
+        restaurantId: params.restaurantId,
+        branchId: movement.branchId,
+        storageLocationId: movement.storageLocationId,
+        itemId: movement.itemId,
+        stockLedgerId: movement.id,
+        quantityAfter: snapshot.newQuantity,
       });
+    }
 
-      const rows = await tx
-        .insert(schema.stockLedger)
-        .values({
-          restaurantId: params.restaurantId,
-          branchId: location.branchId,
-          storageLocationId: params.storageLocationId,
-          itemId: params.itemId,
-          movementType: params.movementType,
-          quantityDelta: params.quantityDelta,
-          unitCostMinor: snapshot.unitCostMinor,
-          currency: snapshot.currency,
-          note: params.note ?? null,
-          actorUserId: params.actorUserId,
-        })
-        .returning();
-      const movement = rows[0];
-      if (!movement) throw new Error("recordMovement: insert returned no row");
-
-      await this.auditLogService.record(
-        {
-          restaurantId: params.restaurantId,
-          branchId: movement.branchId,
-          actorUserId: params.actorUserId,
-          action: "stock_ledger.movement_recorded",
-          targetType: "stock_ledger",
-          targetId: movement.id,
-          metadata: { itemId: movement.itemId, movementType: movement.movementType, quantityDelta: movement.quantityDelta, storageLocationId: movement.storageLocationId },
-        },
-        tx,
-      );
-
-      // Rule 12: never block the sale/movement itself — this only ever
-      // flags it for later review, after it's already recorded.
-      if (snapshot.newQuantity < 0) {
-        await this.negativeStockFlagsService.create(tx, {
-          restaurantId: params.restaurantId,
-          branchId: movement.branchId,
-          storageLocationId: movement.storageLocationId,
-          itemId: movement.itemId,
-          stockLedgerId: movement.id,
-          quantityAfter: snapshot.newQuantity,
-        });
-      }
-
-      return movement;
-    });
+    return movement;
   }
 
   /** Always two rows, sharing a new transferGroupId: a negative entry at
@@ -278,6 +302,8 @@ export class StockLedgerService {
             params.storageLocationId !== undefined ? eq(schema.stockLedger.storageLocationId, params.storageLocationId) : undefined,
             params.itemId !== undefined ? eq(schema.stockLedger.itemId, params.itemId) : undefined,
             params.movementType !== undefined ? eq(schema.stockLedger.movementType, params.movementType) : undefined,
+            params.productionBatchId !== undefined ? eq(schema.stockLedger.productionBatchId, params.productionBatchId) : undefined,
+            params.invoiceId !== undefined ? eq(schema.stockLedger.invoiceId, params.invoiceId) : undefined,
             seekCondition(schema.stockLedger.createdAt, schema.stockLedger.id, after),
           ),
         )

@@ -13,6 +13,10 @@ import { PriceListItemsService } from "./price-list-items.service.js";
 import { PriceListsService } from "./price-lists.service.js";
 import { PriceResolutionService } from "./price-resolution.service.js";
 import { ProductsService } from "./products.service.js";
+import { RecipesService } from "./recipes.service.js";
+import { StockLedgerService } from "./stock-ledger.service.js";
+import { StockLevelsService } from "./stock-levels.service.js";
+import { NegativeStockFlagsService } from "./negative-stock-flags.service.js";
 import { VoidsService } from "./voids.service.js";
 
 const APP_DATABASE_URL =
@@ -43,7 +47,11 @@ beforeAll(async () => {
   priceListsService = new PriceListsService(db, auditLogService);
   priceListItemsService = new PriceListItemsService(db, auditLogService);
   managerPinService = new ManagerPinService(db, permissionsService, auditLogService, {});
-  service = new VoidsService(db, auditLogService, managerPinService);
+  const recipesService = new RecipesService(db, auditLogService);
+  const stockLevelsService = new StockLevelsService(db);
+  const negativeStockFlagsService = new NegativeStockFlagsService(db, auditLogService);
+  const stockLedgerService = new StockLedgerService(db, auditLogService, stockLevelsService, negativeStockFlagsService);
+  service = new VoidsService(db, auditLogService, managerPinService, recipesService, stockLedgerService);
 
   // Same "don't depend on seed.ts having run" reasoning as discounts.service.test.ts
   // — grant the real pos.void.approve key directly, idempotently, since VoidsService

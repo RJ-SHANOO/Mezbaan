@@ -22,3 +22,16 @@ export function convertQuantity(quantity: number, fromUnitId: string, toUnitId: 
   const inBaseUnits = quantity * fromFactor;
   return inBaseUnits / toFactor;
 }
+
+/**
+ * P3-13: how much raw ingredient a recipe line actually needs once prep
+ * loss is accounted for — e.g. a line needing 100 (usable) at an 90%
+ * yield (peeling loses 10%) actually needs 100 / 0.9 ≈ 111.11 raw. 100
+ * means no loss at all (`neededQuantity` is returned unchanged).
+ */
+export function requiredRawQuantity(neededQuantity: number, yieldPercent: number): number {
+  if (yieldPercent <= 0 || yieldPercent > 100) {
+    throw new Error(`requiredRawQuantity: yieldPercent must be in (0, 100], got ${yieldPercent}`);
+  }
+  return neededQuantity / (yieldPercent / 100);
+}

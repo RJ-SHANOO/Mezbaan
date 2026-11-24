@@ -27,6 +27,13 @@ export const PERMISSION_SEED = [
   { key: "kitchen.manage", description: "Manage kitchen stations and routing rules" },
   { key: "kitchen.view", description: "View kitchen tickets — no money fields are ever exposed through this permission" },
   { key: "inventory.manage", description: "Manage inventory categories, items and storage locations" },
+  { key: "recipes.manage", description: "Define what a product or variant is made of" },
+  { key: "suppliers.manage", description: "Manage supplier records, the items each supplies, and price history" },
+  { key: "purchasing.manage", description: "Create and edit purchase orders, mark them sent" },
+  { key: "purchasing.po.approve", description: "Approve a purchase order before it's sent to a supplier" },
+  { key: "purchasing.receive", description: "Record a goods received note against a purchase order" },
+  { key: "inventory.count.approve", description: "Approve a stock count's variance before stock is adjusted" },
+  { key: "inventory.wastage.approve", description: "Approve a wastage entry above the restaurant's own-authority limit" },
 ] as const;
 
 // Which seeded permissions each role gets by default. Kitchen staff gets none of these —
@@ -48,6 +55,27 @@ export const PERMISSION_SEED = [
 // is catalog/config setup for raw stock items, same tier as menu.manage/
 // tables.manage/kitchen.manage — not the same permission as inventory.adjust
 // (an operational stock-count correction, already seeded, different concern).
+// recipes.manage (P3-13) is its own permission, not menu.manage or
+// inventory.manage, because a recipe genuinely bridges both domains —
+// overloading either existing permission would give it a meaning neither
+// was designed for. suppliers.manage (P3-20) is the same tier again —
+// purchasing setup, not an operational POS/kitchen permission.
+// purchasing.manage (P3-21) is that same tier for purchase orders
+// themselves; purchasing.po.approve is its own separate approval
+// permission, same two-tier split as pos.discount.approve/pos.void.approve/
+// billing.refund.approve — a draft PO's own creator doesn't get to also
+// be the one who signs off on committing to it. purchasing.receive (P3-22)
+// is its own permission again, not purchasing.manage — recording what a
+// delivery driver actually dropped off is an operational, physical-receipt
+// action, a different concern from managing the order document itself.
+// inventory.count.approve (P3-27) is the same two-tier split again, same as
+// pos.void.approve/billing.refund.approve/purchasing.po.approve — the person who
+// started/submitted a stock count doesn't get to also be the one who approves its
+// own variance before stock is adjusted. inventory.wastage.approve (P3-28) is the
+// same own-authority-limit shape as pos.discount.approve, not an always-approve
+// one like the others above — a small wastage entry within the restaurant's own
+// configured limit is an ordinary action, same reasoning a credit sale within
+// limit needs no approval either.
 export const ROLE_PERMISSIONS: Readonly<Record<string, readonly string[]>> = {
   super_admin: PERMISSION_SEED.map((p) => p.key),
   owner: PERMISSION_SEED.map((p) => p.key),
@@ -66,6 +94,13 @@ export const ROLE_PERMISSIONS: Readonly<Record<string, readonly string[]>> = {
     "kitchen.manage",
     "kitchen.view",
     "inventory.manage",
+    "recipes.manage",
+    "suppliers.manage",
+    "purchasing.manage",
+    "purchasing.po.approve",
+    "purchasing.receive",
+    "inventory.count.approve",
+    "inventory.wastage.approve",
   ],
   cashier: ["pos.sell", "pos.mark_out_of_stock"],
   kitchen_staff: ["kitchen.view"],

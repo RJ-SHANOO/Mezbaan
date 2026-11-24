@@ -53,6 +53,8 @@ export const StockMovementSchema = z.object({
   movementType: MovementTypeSchema,
   quantityDelta: z.number(),
   transferGroupId: z.string().uuid().nullable(),
+  productionBatchId: z.string().uuid().nullable(),
+  invoiceId: z.string().uuid().nullable(),
   unitCostMinor: MinorUnitsSchema.nullable(),
   currency: z.string().nullable(),
   note: z.string().nullable(),
@@ -66,6 +68,8 @@ export const ListStockMovementsQuerySchema = z.object({
   storageLocationId: z.string().uuid().optional(),
   itemId: z.string().uuid().optional(),
   movementType: MovementTypeSchema.optional(),
+  productionBatchId: z.string().uuid().optional(),
+  invoiceId: z.string().uuid().optional(),
   cursor: z.string().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
 });

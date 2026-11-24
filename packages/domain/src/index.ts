@@ -29,5 +29,5 @@ export {
   canTransitionOrderStatus,
   assertCanTransitionOrderStatus,
 } from "./order-state-machine.js";
-export { convertQuantity } from "./quantity.js";
+export { convertQuantity, requiredRawQuantity } from "./quantity.js";
 export { scaleMoneyByQuantity, blendWeightedAverageCost } from "./costing.js";

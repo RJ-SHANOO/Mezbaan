@@ -9,6 +9,7 @@ export interface StorageLocationRecord {
   branchId: string;
   name: string;
   sortOrder: number;
+  isSaleDeductionDefault: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -19,6 +20,7 @@ export interface CreateStorageLocationParams {
   branchId: string;
   name: string;
   sortOrder?: number;
+  isSaleDeductionDefault?: boolean;
 }
 
 export interface UpdateStorageLocationParams {
@@ -27,6 +29,7 @@ export interface UpdateStorageLocationParams {
   actorUserId: string;
   name?: string;
   sortOrder?: number;
+  isSaleDeductionDefault?: boolean;
 }
 
 const LOCATION_NOT_FOUND = "Storage location not found";
@@ -56,9 +59,23 @@ export class StorageLocationsService {
       const branchRows = await tx.select({ id: schema.branches.id }).from(schema.branches).where(eq(schema.branches.id, params.branchId));
       if (branchRows.length === 0) throw new NotFoundException("Branch not found");
 
+      // Only one location per branch may be the sale-deduction default — see
+      // storage-locations.ts's own docs for why this is a flag, not a
+      // separate settings table. Unset first so the partial unique index
+      // never sees two true rows at once, even mid-transaction.
+      if (params.isSaleDeductionDefault === true) {
+        await tx.update(schema.storageLocations).set({ isSaleDeductionDefault: false }).where(eq(schema.storageLocations.branchId, params.branchId));
+      }
+
       const rows = await tx
         .insert(schema.storageLocations)
-        .values({ restaurantId: params.restaurantId, branchId: params.branchId, name: params.name, sortOrder: params.sortOrder ?? 0 })
+        .values({
+          restaurantId: params.restaurantId,
+          branchId: params.branchId,
+          name: params.name,
+          sortOrder: params.sortOrder ?? 0,
+          isSaleDeductionDefault: params.isSaleDeductionDefault ?? false,
+        })
         .returning();
       const location = rows[0];
       if (!location) throw new Error("create: storage location insert returned no row");
@@ -73,11 +90,20 @@ export class StorageLocationsService {
 
   async update(params: UpdateStorageLocationParams): Promise<StorageLocationRecord> {
     return withTenant(this.db, { restaurantId: params.restaurantId }, async (tx) => {
+      const existingRows = await tx.select({ branchId: schema.storageLocations.branchId }).from(schema.storageLocations).where(eq(schema.storageLocations.id, params.locationId));
+      const existing = existingRows[0];
+      if (!existing) throw new NotFoundException(LOCATION_NOT_FOUND);
+
+      if (params.isSaleDeductionDefault === true) {
+        await tx.update(schema.storageLocations).set({ isSaleDeductionDefault: false }).where(eq(schema.storageLocations.branchId, existing.branchId));
+      }
+
       const rows = await tx
         .update(schema.storageLocations)
         .set({
           ...(params.name !== undefined && { name: params.name }),
           ...(params.sortOrder !== undefined && { sortOrder: params.sortOrder }),
+          ...(params.isSaleDeductionDefault !== undefined && { isSaleDeductionDefault: params.isSaleDeductionDefault }),
           updatedAt: new Date(),
         })
         .where(eq(schema.storageLocations.id, params.locationId))
