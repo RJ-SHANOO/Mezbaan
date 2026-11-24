@@ -30,6 +30,10 @@ import { PriceListsController } from "./price-lists.controller.js";
 import { MenuSnapshotCacheService } from "./menu-snapshot-cache.service.js";
 import { PriceListsService } from "./price-lists.service.js";
 import { PriceResolutionService } from "./price-resolution.service.js";
+import { NegativeStockFlagsService } from "./negative-stock-flags.service.js";
+import { RecipesService } from "./recipes.service.js";
+import { StockLedgerService } from "./stock-ledger.service.js";
+import { StockLevelsService } from "./stock-levels.service.js";
 import { ProductVariantsController } from "./product-variants.controller.js";
 import { ProductVariantsService } from "./product-variants.service.js";
 import { ProductsController } from "./products.controller.js";
@@ -114,6 +118,14 @@ export class CatalogModule {
         PermissionsService,
         { provide: MANAGER_PIN_OPTIONS, useValue: {} },
         AuditLogService,
+        // P3-18: VoidsService/RefundsService's own stock disposition (return
+        // to stock or wastage) needs the same recipe-expansion and
+        // stock-ledger primitives P3-16/17 already built — same provider
+        // set OrdersModule had to gain for its own copies of these services.
+        RecipesService,
+        StockLevelsService,
+        NegativeStockFlagsService,
+        StockLedgerService,
       ],
       exports: [
         CategoriesService,
