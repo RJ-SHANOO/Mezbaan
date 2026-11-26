@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import {
   AuthModule,
+  BillingPlanModule,
   BranchesModule,
   CatalogModule,
   DbModule,
@@ -67,6 +68,7 @@ const DEFAULT_S3_PUBLIC_BASE_URL = `${DEFAULT_S3_ENDPOINT}/${DEFAULT_S3_BUCKET}`
     UserInvitationModule.forRoot(),
     DevicesAdminModule.forRoot(),
     FeatureFlagsModule.forRoot(),
+    BillingPlanModule.forRoot(),
     CatalogModule.forRoot(),
     TablesModule.forRoot(),
     KitchenModule.forRoot(),
