@@ -109,6 +109,13 @@ export {
 } from "./billing-plan.service.js";
 export { BillingPlanController } from "./billing-plan.controller.js";
 export { BillingPlanModule } from "./billing-plan.module.js";
+export { CommissionRunService, type CommissionRunRecord } from "./commission-run.service.js";
+export {
+  COMMISSION_RUN_SCHEDULER_OPTIONS,
+  CommissionRunScheduler,
+  type CommissionRunSchedulerOptions,
+} from "./commission-run-scheduler.service.js";
+export { CommissionRunModule } from "./commission-run.module.js";
 export { SyncService, type ReceiveBatchParams } from "./sync.service.js";
 export { SyncController } from "./sync.controller.js";
 export { SyncModule } from "./sync.module.js";

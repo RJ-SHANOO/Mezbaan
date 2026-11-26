@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import {
   AuditLogService,
+  CommissionRunModule,
   CommissionService,
   DbModule,
   HealthController,
@@ -23,10 +24,12 @@ import { SalesStockDeductionHandlerProvider } from "./sales-stock-deduction-hand
 
 const DEFAULT_APP_DATABASE_URL = "postgres://mezbaan_app:mezbaan_app_dev_password@localhost:5432/mezbaan";
 
-// Commission runs, settlements and notifications are added in later tasks.
+// Settlement statements and notifications are added in later tasks.
 // Outbox relaying (P1-30) is the first job this process actually runs — it's
 // the only process that passes autoStart: true, since every api-* process only
 // needs OutboxService to write rows, not to also poll and process them.
+// P3-37's CommissionRunModule is the second: its own nightly settlement job,
+// same autoStart-only-here split.
 //
 // P2-26 is the first real handler: ReconciliationHandlerProvider registers
 // itself against "invoice.generated" in its own onModuleInit (see that
@@ -39,6 +42,7 @@ const DEFAULT_APP_DATABASE_URL = "postgres://mezbaan_app:mezbaan_app_dev_passwor
   imports: [
     DbModule.forRoot({ connectionString: process.env.APP_DATABASE_URL ?? DEFAULT_APP_DATABASE_URL }),
     OutboxModule.forRoot({ autoStart: true, handlers: {} }),
+    CommissionRunModule.forRoot({ autoStart: true }),
   ],
   controllers: [HealthController, MetricsController],
   providers: [
