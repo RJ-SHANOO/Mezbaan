@@ -15,6 +15,7 @@ import {
   PermissionsService,
   PinoNestLogger,
   registerMetricsHooks,
+  SuperAdminNoticeInterceptor,
   TenantContextGuard,
 } from "@mezbaan/nest-core";
 import { AppModule } from "./app.module.js";
@@ -53,6 +54,8 @@ async function bootstrap(): Promise<void> {
     new TenantContextGuard({ secret: process.env.JWT_SECRET ?? DEV_JWT_SECRET }),
     new PermissionGuard(new PermissionsService(app.get<Database>(DATABASE)), app.get(Reflector)),
   );
+  // P3-40: the "clear visible notice" header — see the interceptor's own docs.
+  app.useGlobalInterceptors(new SuperAdminNoticeInterceptor());
   registerMetricsHooks(app.getHttpAdapter().getInstance());
 
   const port = Number(process.env.PORT ?? DEFAULT_PORT);

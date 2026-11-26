@@ -1,0 +1,1 @@
+ALTER TABLE "audit_logs" ADD COLUMN "acting_as_super_admin" boolean DEFAULT false NOT NULL;

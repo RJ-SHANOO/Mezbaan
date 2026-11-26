@@ -87,6 +87,14 @@ export {
   type SettlementPayment,
 } from "./settlement.js";
 export {
+  AuditLogSchema,
+  type AuditLog,
+  ListAuditLogsQuerySchema,
+  type ListAuditLogsQuery,
+  AuditLogPageSchema,
+  type AuditLogPage,
+} from "./audit-log.js";
+export {
   RestaurantStatusSchema,
   type RestaurantStatus,
   RestaurantSummarySchema,

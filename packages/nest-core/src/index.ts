@@ -36,7 +36,12 @@ export { AuthModule } from "./auth.module.js";
 export { RequirePermission, RequireBranchMatch, PERMISSION_KEY, BRANCH_MATCH_KEY } from "./permission.decorator.js";
 export { PermissionsService } from "./permissions.service.js";
 export { PermissionGuard } from "./permission.guard.js";
-export { AuditLogService, type AuditLogEntry } from "./audit-log.service.js";
+export {
+  AuditLogService,
+  type AuditLogEntry,
+  type AuditLogRecord,
+  type ListAuditLogsParams,
+} from "./audit-log.service.js";
 export {
   ManagerPinService,
   MANAGER_PIN_OPTIONS,
@@ -139,6 +144,7 @@ export { RestaurantsAdminController } from "./restaurants-admin.controller.js";
 export { PlatformRevenueService, type GetPlatformRevenueParams, type PlatformRevenueByCurrencyRecord } from "./platform-revenue.service.js";
 export { PlatformRevenueController } from "./platform-revenue.controller.js";
 export { PlatformAdminModule } from "./platform-admin.module.js";
+export { SuperAdminNoticeInterceptor, SUPER_ADMIN_NOTICE_HEADER } from "./super-admin-notice.interceptor.js";
 export { SyncService, type ReceiveBatchParams } from "./sync.service.js";
 export { SyncController } from "./sync.controller.js";
 export { SyncModule } from "./sync.module.js";
