@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, numeric, pgPolicy, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { check, index, numeric, pgPolicy, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { inventoryItems } from "./inventory-items.js";
 import { purchaseOrderItems } from "./purchase-order-items.js";
 import { purchaseReturns } from "./purchase-returns.js";
@@ -37,6 +37,9 @@ export const purchaseReturnItems = pgTable(
   },
   (table) => [
     check("purchase_return_items_quantity_positive", sql`${table.quantity} > 0`),
+    // P3-41: every caller fetches "this return's lines" by
+    // purchaseReturnId alone — no index behind it until now.
+    index("purchase_return_items_return_idx").on(table.purchaseReturnId),
     pgPolicy("purchase_return_items_tenant_isolation", {
       for: "all",
       using: tenantMatch,

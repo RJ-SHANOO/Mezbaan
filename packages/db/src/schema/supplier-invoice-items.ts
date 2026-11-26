@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { bigint, check, numeric, pgPolicy, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { bigint, check, index, numeric, pgPolicy, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { inventoryItems } from "./inventory-items.js";
 import { purchaseOrderItems } from "./purchase-order-items.js";
 import { restaurants } from "./restaurants.js";
@@ -38,6 +38,9 @@ export const supplierInvoiceItems = pgTable(
   (table) => [
     check("supplier_invoice_items_quantity_positive", sql`${table.quantity} > 0`),
     check("supplier_invoice_items_unit_cost_non_negative", sql`${table.unitCostMinor} >= 0`),
+    // P3-41: every caller fetches "this invoice's lines" by
+    // supplierInvoiceId alone — no index behind it until now.
+    index("supplier_invoice_items_invoice_idx").on(table.supplierInvoiceId),
     pgPolicy("supplier_invoice_items_tenant_isolation", {
       for: "all",
       using: tenantMatch,

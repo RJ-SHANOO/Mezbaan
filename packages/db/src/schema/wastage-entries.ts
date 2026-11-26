@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { bigint, boolean, check, numeric, pgPolicy, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { bigint, boolean, check, index, numeric, pgPolicy, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { branches } from "./branches.js";
 import { inventoryItems } from "./inventory-items.js";
 import { restaurants } from "./restaurants.js";
@@ -49,6 +49,10 @@ export const wastageEntries = pgTable(
   },
   (table) => [
     check("wastage_entries_quantity_positive", sql`${table.quantity} > 0`),
+    // P3-41: the wastage report (P3-33) always filters by branchId plus a
+    // createdAt range; WastageService's own list screen filters by branchId
+    // alone when given, ordered by createdAt — this one index covers both.
+    index("wastage_entries_branch_created_idx").on(table.branchId, table.createdAt),
     pgPolicy("wastage_entries_tenant_isolation", {
       for: "all",
       using: tenantMatch,

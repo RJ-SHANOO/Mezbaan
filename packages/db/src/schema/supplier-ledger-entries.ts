@@ -1,4 +1,4 @@
-import { bigint, pgPolicy, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { bigint, index, pgPolicy, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { branches } from "./branches.js";
 import { restaurants } from "./restaurants.js";
 import { tenantMatch } from "./rls.js";
@@ -47,7 +47,12 @@ export const supplierLedgerEntries = pgTable(
       .references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  () => [
+  (table) => [
+    // P3-41: SupplierLedgerService.getBalance/listLedger both always filter
+    // by supplierId (never optional, unlike most of this codebase's other
+    // cursor-paginated lists) and listLedger orders by createdAt — one
+    // composite index serves both the balance sum and the paginated read.
+    index("supplier_ledger_entries_supplier_created_idx").on(table.supplierId, table.createdAt),
     pgPolicy("supplier_ledger_entries_tenant_isolation", {
       for: "all",
       using: tenantMatch,

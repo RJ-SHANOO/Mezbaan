@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { bigint, check, numeric, pgPolicy, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { bigint, check, index, numeric, pgPolicy, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { inventoryItems } from "./inventory-items.js";
 import { purchaseOrders } from "./purchase-orders.js";
 import { restaurants } from "./restaurants.js";
@@ -57,6 +57,11 @@ export const purchaseOrderItems = pgTable(
     check("purchase_order_items_unit_cost_non_negative", sql`${table.unitCostMinor} >= 0`),
     check("purchase_order_items_received_quantity_non_negative", sql`${table.receivedQuantity} >= 0`),
     check("purchase_order_items_returned_quantity_non_negative", sql`${table.returnedQuantity} >= 0`),
+    // P3-41: every caller of this table (goods receiving, supplier invoice
+    // matching, purchase returns, the order's own item list) fetches "this
+    // purchase order's items" by purchaseOrderId — the single hottest
+    // lookup against this table, with no index behind it until now.
+    index("purchase_order_items_purchase_order_idx").on(table.purchaseOrderId),
     pgPolicy("purchase_order_items_tenant_isolation", {
       for: "all",
       using: tenantMatch,

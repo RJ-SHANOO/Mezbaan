@@ -1,4 +1,4 @@
-import { bigint, pgPolicy, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { bigint, index, pgPolicy, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { branches } from "./branches.js";
 import { purchaseOrders } from "./purchase-orders.js";
 import { restaurants } from "./restaurants.js";
@@ -51,6 +51,10 @@ export const supplierInvoices = pgTable(
   },
   (table) => [
     uniqueIndex("supplier_invoices_supplier_number_idx").on(table.restaurantId, table.supplierId, table.supplierInvoiceNumber),
+    // P3-41: SupplierInvoicesService.listForPurchaseOrder reads "this
+    // order's invoices" by purchaseOrderId alone — no index behind it
+    // until now.
+    index("supplier_invoices_purchase_order_idx").on(table.purchaseOrderId),
     pgPolicy("supplier_invoices_tenant_isolation", {
       for: "all",
       using: tenantMatch,

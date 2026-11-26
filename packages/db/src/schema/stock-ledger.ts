@@ -1,4 +1,4 @@
-import { bigint, numeric, pgPolicy, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { bigint, index, numeric, pgPolicy, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { branches } from "./branches.js";
 import { invoices } from "./invoices.js";
 import { inventoryItems } from "./inventory-items.js";
@@ -95,7 +95,15 @@ export const stockLedger = pgTable(
       .references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  () => [
+  (table) => [
+    // P3-41: StockLedgerService.getAuditTrail/the stock_levels rebuild replay
+    // both filter by exactly this pair and order by createdAt — a per-item,
+    // per-location history read with no other filter ever present.
+    index("stock_ledger_location_item_created_idx").on(table.storageLocationId, table.itemId, table.createdAt),
+    // P3-41: every inventory report (movement, wastage, food-cost actual)
+    // filters by branchId plus a createdAt range — always both, never
+    // either alone.
+    index("stock_ledger_branch_created_idx").on(table.branchId, table.createdAt),
     pgPolicy("stock_ledger_tenant_isolation", {
       for: "all",
       using: tenantMatch,

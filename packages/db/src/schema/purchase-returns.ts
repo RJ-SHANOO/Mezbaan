@@ -1,4 +1,4 @@
-import { pgPolicy, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { index, pgPolicy, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { branches } from "./branches.js";
 import { purchaseOrders } from "./purchase-orders.js";
 import { restaurants } from "./restaurants.js";
@@ -39,7 +39,12 @@ export const purchaseReturns = pgTable(
     note: text("note"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  () => [
+  (table) => [
+    // P3-41: PurchaseReturnsService reads "this order's returns" by
+    // purchaseOrderId alone; the supplier purchase report (P3-33) filters
+    // the same column plus a createdAt range — one composite index serves
+    // both.
+    index("purchase_returns_purchase_order_created_idx").on(table.purchaseOrderId, table.createdAt),
     pgPolicy("purchase_returns_tenant_isolation", {
       for: "all",
       using: tenantMatch,

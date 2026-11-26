@@ -1,4 +1,4 @@
-import { bigint, integer, pgPolicy, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { bigint, index, integer, pgPolicy, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { branches } from "./branches.js";
 import { invoices } from "./invoices.js";
 import { orderItems } from "./order-items.js";
@@ -58,6 +58,9 @@ export const orderItemFoodCosts = pgTable(
   },
   (table) => [
     uniqueIndex("order_item_food_costs_order_item_idx").on(table.orderItemId),
+    // P3-41: the food-cost variance report's "theoretical" side (P3-32)
+    // filters by branchId plus a createdAt range, always both.
+    index("order_item_food_costs_branch_created_idx").on(table.branchId, table.createdAt),
     pgPolicy("order_item_food_costs_tenant_isolation", {
       for: "all",
       using: tenantMatch,
