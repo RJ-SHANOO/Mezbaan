@@ -92,6 +92,23 @@ export class DeviceService {
     });
   }
 
+  /** P3-39: the same list, for a Super Admin looking at another
+   * restaurant's devices — same split as FeatureFlagsService's own
+   * listForRestaurantAsSuperAdmin. Filters by restaurantId explicitly
+   * (rule 2): isSuperAdmin: true bypasses RLS's own tenant filtering
+   * entirely, so without this WHERE clause the query would return every
+   * restaurant's devices, not just this one's. */
+  async listAsSuperAdmin(restaurantId: string): Promise<DeviceRecord[]> {
+    return withTenant(this.db, { restaurantId, isSuperAdmin: true }, async (tx) => {
+      const rows = await tx
+        .select({ device: schema.devices, branchNumber: schema.branches.branchNumber })
+        .from(schema.devices)
+        .innerJoin(schema.branches, eq(schema.devices.branchId, schema.branches.id))
+        .where(eq(schema.devices.restaurantId, restaurantId));
+      return rows.map(({ device, branchNumber }) => ({ ...device, branchNumber }));
+    });
+  }
+
   /** P2-36: every active device's id + token hash for one branch — what a
    * hub fetches once while online so it can verify a peer's device token
    * itself afterward, entirely offline, by hashing the presented raw token

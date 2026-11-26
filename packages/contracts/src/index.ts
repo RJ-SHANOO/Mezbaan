@@ -87,6 +87,28 @@ export {
   type SettlementPayment,
 } from "./settlement.js";
 export {
+  RestaurantStatusSchema,
+  type RestaurantStatus,
+  RestaurantSummarySchema,
+  type RestaurantSummary,
+  RestaurantBranchSummarySchema,
+  type RestaurantBranchSummary,
+  RestaurantDeviceSummarySchema,
+  type RestaurantDeviceSummary,
+  OutstandingSettlementSchema,
+  type OutstandingSettlement,
+  RestaurantDetailSchema,
+  type RestaurantDetail,
+  SetRestaurantStatusSchema,
+  type SetRestaurantStatus,
+  PlatformRevenueQuerySchema,
+  type PlatformRevenueQuery,
+  PlatformRevenueByCurrencySchema,
+  type PlatformRevenueByCurrency,
+  PlatformRevenueSchema,
+  type PlatformRevenue,
+} from "./platform-admin.js";
+export {
   SyncOperationSchema,
   type SyncOperation,
   SyncBatchRequestSchema,

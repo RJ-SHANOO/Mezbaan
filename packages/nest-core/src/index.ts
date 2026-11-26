@@ -126,6 +126,19 @@ export {
 } from "./settlement-statements.service.js";
 export { SettlementStatementsController } from "./settlement-statements.controller.js";
 export { SettlementStatementsModule } from "./settlement-statements.module.js";
+export {
+  RestaurantsAdminService,
+  type RestaurantSummaryRecord,
+  type RestaurantBranchSummaryRecord,
+  type RestaurantDetailRecord,
+  type OutstandingSettlementRecord,
+  type SetRestaurantStatusParams,
+  type RestaurantStatus,
+} from "./restaurants-admin.service.js";
+export { RestaurantsAdminController } from "./restaurants-admin.controller.js";
+export { PlatformRevenueService, type GetPlatformRevenueParams, type PlatformRevenueByCurrencyRecord } from "./platform-revenue.service.js";
+export { PlatformRevenueController } from "./platform-revenue.controller.js";
+export { PlatformAdminModule } from "./platform-admin.module.js";
 export { SyncService, type ReceiveBatchParams } from "./sync.service.js";
 export { SyncController } from "./sync.controller.js";
 export { SyncModule } from "./sync.module.js";

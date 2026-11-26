@@ -1,4 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
+import { eq } from "drizzle-orm";
 import { schema, withTenant, type Database } from "@mezbaan/db";
 import { AuditLogService } from "./audit-log.service.js";
 import { DATABASE } from "./db.module.js";
@@ -36,11 +37,17 @@ export class FeatureFlagsService {
   ) {}
 
   async listForRestaurant(restaurantId: string): Promise<FeatureFlagRecord[]> {
-    return withTenant(this.db, { restaurantId }, (tx) => tx.select().from(schema.featureFlags));
+    return withTenant(this.db, { restaurantId }, (tx) => tx.select().from(schema.featureFlags).where(eq(schema.featureFlags.restaurantId, restaurantId)));
   }
 
+  /** Filters by restaurantId explicitly (rule 2) rather than leaving it to
+   * RLS alone — isSuperAdmin: true bypasses RLS's own tenant filtering
+   * entirely, so without this WHERE clause a super-admin lookup for
+   * restaurant A would return every restaurant's feature flags, not just
+   * A's. (Found and fixed alongside the same bug class in P3-39's
+   * BillingPlanService/DeviceService/SettlementStatementsService.) */
   async listForRestaurantAsSuperAdmin(restaurantId: string): Promise<FeatureFlagRecord[]> {
-    return withTenant(this.db, { restaurantId, isSuperAdmin: true }, (tx) => tx.select().from(schema.featureFlags));
+    return withTenant(this.db, { restaurantId, isSuperAdmin: true }, (tx) => tx.select().from(schema.featureFlags).where(eq(schema.featureFlags.restaurantId, restaurantId)));
   }
 
   async setFlag(params: SetFeatureFlagParams): Promise<FeatureFlagRecord> {
