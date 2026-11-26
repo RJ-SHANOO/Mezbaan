@@ -1,39 +1,36 @@
 import { Controller, Get, Query, UnauthorizedException } from "@nestjs/common";
 import { DailyReportQuerySchema, type DailySalesSummary, type DiscountReport, type PaymentBreakdown, type RefundReport, type VoidReport } from "@mezbaan/contracts";
+import { ReportJobName } from "./report-job-names.js";
 import { getTenantContext } from "./tenant-context.js";
 import { RequirePermission } from "./permission.decorator.js";
-import { SalesReportsService } from "./sales-reports.service.js";
+import { ReportsQueueService } from "./reports-queue.service.js";
 import { parseOrBadRequest } from "./validation.js";
-
-function toMinorStrings<T extends Record<string, unknown>>(obj: T): Record<string, string> {
-  return Object.fromEntries(Object.entries(obj).map(([key, value]) => [key, String(value)]));
-}
 
 /** P2-40: basic pilot reports, each scoped to one branch's business day.
  * Lives in api-reports (rule: "api-reports fails → selling and stock
  * continue; reports are delayed") — a separate process from the ones that
  * actually record a sale, so a slow or broken report can never hold one
  * up. All five routes share the same reports.view permission (already
- * seeded, already granted to branch_manager/owner/super_admin). */
+ * seeded, already granted to branch_manager/owner/super_admin).
+ *
+ * P3-43: each one now runs through ReportsQueueService (a BullMQ job with
+ * its own bounded concurrency) rather than computing inline here — the
+ * response shape and every error this already returned (400 from
+ * `parseOrBadRequest` below, same as always; anything the report service
+ * itself throws, round-tripped through the queue unchanged) are both
+ * identical to before. The actual mapping from each service's own result
+ * to this wire shape now lives in ReportJobHandlersProvider
+ * (apps/api-reports), since that's what runs inside the job. */
 @Controller("reports")
 export class SalesReportsController {
-  constructor(private readonly salesReportsService: SalesReportsService) {}
+  constructor(private readonly reportsQueueService: ReportsQueueService) {}
 
   @Get("daily-summary")
   @RequirePermission("reports.view")
   async getDailySummary(@Query() query: unknown): Promise<DailySalesSummary> {
     const tenant = requireTenant();
     const { branchId, businessDate } = parseOrBadRequest(DailyReportQuerySchema, query);
-    const summary = await this.salesReportsService.getDailySummary({ restaurantId: tenant.restaurantId, branchId, businessDate });
-    return {
-      businessDate: summary.businessDate,
-      currency: summary.currency,
-      orderCount: summary.orderCount,
-      subtotalMinor: summary.subtotalMinor.toString(),
-      taxMinor: summary.taxMinor.toString(),
-      serviceChargeMinor: summary.serviceChargeMinor.toString(),
-      grossSalesMinor: summary.grossSalesMinor.toString(),
-    };
+    return this.reportsQueueService.run(ReportJobName.SalesDailySummary, { restaurantId: tenant.restaurantId, branchId, businessDate });
   }
 
   @Get("payment-breakdown")
@@ -41,13 +38,7 @@ export class SalesReportsController {
   async getPaymentBreakdown(@Query() query: unknown): Promise<PaymentBreakdown> {
     const tenant = requireTenant();
     const { branchId, businessDate } = parseOrBadRequest(DailyReportQuerySchema, query);
-    const breakdown = await this.salesReportsService.getPaymentBreakdown({ restaurantId: tenant.restaurantId, branchId, businessDate });
-    return {
-      ...breakdown,
-      byMethod: toMinorStrings(breakdown.byMethod) as PaymentBreakdown["byMethod"],
-      tipsMinor: breakdown.tipsMinor.toString(),
-      totalMinor: breakdown.totalMinor.toString(),
-    };
+    return this.reportsQueueService.run(ReportJobName.SalesPaymentBreakdown, { restaurantId: tenant.restaurantId, branchId, businessDate });
   }
 
   @Get("voids")
@@ -55,12 +46,7 @@ export class SalesReportsController {
   async getVoidReport(@Query() query: unknown): Promise<VoidReport> {
     const tenant = requireTenant();
     const { branchId, businessDate } = parseOrBadRequest(DailyReportQuerySchema, query);
-    const report = await this.salesReportsService.getVoidReport({ restaurantId: tenant.restaurantId, branchId, businessDate });
-    return {
-      ...report,
-      totalValueMinor: report.totalValueMinor.toString(),
-      entries: report.entries.map((entry) => ({ ...entry, valueMinor: entry.valueMinor.toString(), voidedAt: entry.voidedAt.toISOString() })),
-    };
+    return this.reportsQueueService.run(ReportJobName.SalesVoidReport, { restaurantId: tenant.restaurantId, branchId, businessDate });
   }
 
   @Get("discounts")
@@ -68,12 +54,7 @@ export class SalesReportsController {
   async getDiscountReport(@Query() query: unknown): Promise<DiscountReport> {
     const tenant = requireTenant();
     const { branchId, businessDate } = parseOrBadRequest(DailyReportQuerySchema, query);
-    const report = await this.salesReportsService.getDiscountReport({ restaurantId: tenant.restaurantId, branchId, businessDate });
-    return {
-      ...report,
-      totalDiscountMinor: report.totalDiscountMinor.toString(),
-      entries: report.entries.map((entry) => ({ ...entry, discountMinor: entry.discountMinor.toString() })),
-    };
+    return this.reportsQueueService.run(ReportJobName.SalesDiscountReport, { restaurantId: tenant.restaurantId, branchId, businessDate });
   }
 
   @Get("refunds")
@@ -81,12 +62,7 @@ export class SalesReportsController {
   async getRefundReport(@Query() query: unknown): Promise<RefundReport> {
     const tenant = requireTenant();
     const { branchId, businessDate } = parseOrBadRequest(DailyReportQuerySchema, query);
-    const report = await this.salesReportsService.getRefundReport({ restaurantId: tenant.restaurantId, branchId, businessDate });
-    return {
-      ...report,
-      totalRefundedMinor: report.totalRefundedMinor.toString(),
-      entries: report.entries.map((entry) => ({ ...entry, amountMinor: entry.amountMinor.toString(), createdAt: entry.createdAt.toISOString() })),
-    };
+    return this.reportsQueueService.run(ReportJobName.SalesRefundReport, { restaurantId: tenant.restaurantId, branchId, businessDate });
   }
 }
 

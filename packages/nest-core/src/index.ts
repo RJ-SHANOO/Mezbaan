@@ -145,6 +145,15 @@ export { PlatformRevenueService, type GetPlatformRevenueParams, type PlatformRev
 export { PlatformRevenueController } from "./platform-revenue.controller.js";
 export { PlatformAdminModule } from "./platform-admin.module.js";
 export { SuperAdminNoticeInterceptor, SUPER_ADMIN_NOTICE_HEADER } from "./super-admin-notice.interceptor.js";
+export {
+  ReportsQueueService,
+  REPORTS_QUEUE_OPTIONS,
+  REPORTS_QUEUE_NAME,
+  type ReportsQueueOptions,
+  type ReportJobHandler,
+} from "./reports-queue.service.js";
+export { ReportsQueueModule } from "./reports-queue.module.js";
+export { ReportJobName } from "./report-job-names.js";
 export { SyncService, type ReceiveBatchParams } from "./sync.service.js";
 export { SyncController } from "./sync.controller.js";
 export { SyncModule } from "./sync.module.js";
