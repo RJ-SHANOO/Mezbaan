@@ -27,6 +27,7 @@ import {
   SupplierLedgerModule,
   StockCountsModule,
   WastageModule,
+  ParLevelsModule,
   TablesModule,
   UserInvitationModule,
 } from "@mezbaan/nest-core";
@@ -80,6 +81,7 @@ const DEFAULT_S3_PUBLIC_BASE_URL = `${DEFAULT_S3_ENDPOINT}/${DEFAULT_S3_BUCKET}`
     SupplierLedgerModule.forRoot(),
     StockCountsModule.forRoot(),
     WastageModule.forRoot(),
+    ParLevelsModule.forRoot(),
   ],
   controllers: [HealthController, MetricsController, ImageUploadController],
   providers: [ImageUploadService],
