@@ -2,6 +2,7 @@ import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { and, eq, gte, inArray, isNotNull, isNull, lt } from "drizzle-orm";
 import { add, applyFixedDiscount, applyPercentageDiscount, money, multiply, sum } from "@mezbaan/domain";
 import { schema, withTenant, type Database } from "@mezbaan/db";
+import { businessDateRangeToUtc } from "./business-date-range.js";
 import { DATABASE } from "./db.module.js";
 import type { PaymentMethod } from "./payment-method-settings.service.js";
 
@@ -297,41 +298,12 @@ export class SalesReportsService {
   /** Converts a `businessDate` (YYYY-MM-DD, meaning local midnight in the
    * branch's own timezone — same "business day is local time, not server
    * UTC" concept as P2-30) into the half-open `[start, end)` UTC instant
-   * range every query above filters by. No timezone library in this
-   * codebase — uses the standard "render a UTC guess through
-   * Intl.DateTimeFormat, then correct by the offset it reveals" trick,
-   * which is exact except right at a DST transition instant, an accepted
-   * edge case for a basic pilot report. */
+   * range every query above filters by. */
   private async businessDayRange(tx: Database, branchId: string, businessDate: string): Promise<{ start: Date; end: Date }> {
     const rows = await tx.select({ timezone: schema.branches.timezone }).from(schema.branches).where(eq(schema.branches.id, branchId));
     const branch = rows[0];
     if (!branch) throw new NotFoundException(BRANCH_NOT_FOUND);
 
-    const start = zonedMidnightToUtc(businessDate, branch.timezone);
-    const nextDate = new Date(`${businessDate}T00:00:00Z`);
-    nextDate.setUTCDate(nextDate.getUTCDate() + 1);
-    const nextDateString = nextDate.toISOString().slice(0, 10);
-    const end = zonedMidnightToUtc(nextDateString, branch.timezone);
-
-    return { start, end };
+    return businessDateRangeToUtc(businessDate, businessDate, branch.timezone);
   }
-}
-
-function zonedMidnightToUtc(dateString: string, timeZone: string): Date {
-  const guess = new Date(`${dateString}T00:00:00Z`);
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    hour12: false,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  }).formatToParts(guess);
-  const get = (type: string): number => Number(parts.find((p) => p.type === type)?.value ?? "0");
-
-  const renderedAsUtc = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour") % 24, get("minute"), get("second"));
-  const offsetMs = renderedAsUtc - guess.getTime();
-  return new Date(guess.getTime() - offsetMs);
 }

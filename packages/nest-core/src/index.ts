@@ -447,6 +447,23 @@ export {
 } from "./sales-reports.service.js";
 export { SalesReportsController } from "./sales-reports.controller.js";
 export { KitchenPrepTimeReportsService, type PrepTimeReportEntry, type PrepTimeReport, type PrepTimeReportParams } from "./kitchen-prep-time-reports.service.js";
+export { zonedMidnightToUtc, businessDateRangeToUtc } from "./business-date-range.js";
+export {
+  InventoryReportsService,
+  type StockOnHandEntry as StockOnHandEntryRecord,
+  type StockOnHandReport as StockOnHandReportRecord,
+  type StockValuationByLocation as StockValuationByLocationRecord,
+  type StockValuationReport as StockValuationReportRecord,
+  type StockMovementSummaryEntry as StockMovementSummaryEntryRecord,
+  type StockMovementReport as StockMovementReportRecord,
+  type FoodCostVarianceReport as FoodCostVarianceReportRecord,
+  type WastageReportByReasonEntry,
+  type WastageReport as WastageReportRecord,
+  type PurchaseReportBySupplierEntry,
+  type PurchaseReport as PurchaseReportRecord,
+  type SupplierActivityReport as SupplierActivityReportRecord,
+} from "./inventory-reports.service.js";
+export { InventoryReportsController } from "./inventory-reports.controller.js";
 export { KitchenPrepTimeReportsController } from "./kitchen-prep-time-reports.controller.js";
 export { InventoryCategoriesService, type InventoryCategoryRecord, type CreateInventoryCategoryParams, type UpdateInventoryCategoryParams } from "./inventory-categories.service.js";
 export { InventoryCategoriesController } from "./inventory-categories.controller.js";

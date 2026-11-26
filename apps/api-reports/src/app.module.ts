@@ -3,6 +3,8 @@ import {
   AuditLogService,
   DbModule,
   HealthController,
+  InventoryReportsController,
+  InventoryReportsService,
   KitchenPrepTimeReportsController,
   KitchenPrepTimeReportsService,
   MetricsController,
@@ -29,7 +31,17 @@ const DEFAULT_APP_DATABASE_URL = "postgres://mezbaan_app:mezbaan_app_dev_passwor
  * it independently recomputes a tax preview, not just reads stored rows. */
 @Module({
   imports: [DbModule.forRoot({ connectionString: process.env.APP_DATABASE_URL ?? DEFAULT_APP_DATABASE_URL })],
-  controllers: [HealthController, MetricsController, SalesReportsController, ReconciliationFlagsController, KitchenPrepTimeReportsController],
-  providers: [SalesReportsService, AuditLogService, TaxRulesService, TaxSettingsService, ServiceChargeSettingsService, TaxCalculationService, ReconciliationService, KitchenPrepTimeReportsService],
+  controllers: [HealthController, MetricsController, SalesReportsController, ReconciliationFlagsController, KitchenPrepTimeReportsController, InventoryReportsController],
+  providers: [
+    SalesReportsService,
+    AuditLogService,
+    TaxRulesService,
+    TaxSettingsService,
+    ServiceChargeSettingsService,
+    TaxCalculationService,
+    ReconciliationService,
+    KitchenPrepTimeReportsService,
+    InventoryReportsService,
+  ],
 })
 export class AppModule {}
