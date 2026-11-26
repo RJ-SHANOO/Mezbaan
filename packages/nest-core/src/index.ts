@@ -528,6 +528,7 @@ export {
 } from "./par-levels.service.js";
 export { ParLevelsController, LowStockController } from "./par-levels.controller.js";
 export { ParLevelsModule } from "./par-levels.module.js";
+export { CommissionService, type CommissionEntryRecord, type ProcessPaymentParams, type ProcessRefundParams } from "./commission.service.js";
 export { InventoryItemsService, type InventoryItemRecord, type CreateInventoryItemParams, type UpdateInventoryItemParams } from "./inventory-items.service.js";
 export { InventoryItemsController } from "./inventory-items.controller.js";
 export { UnitsService, type UnitRecord, type CreateUnitParams, type UpdateUnitParams } from "./units.service.js";

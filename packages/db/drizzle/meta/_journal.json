@@ -456,6 +456,20 @@
       "when": 1795541931581,
       "tag": "0064_fearless_energizer",
       "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1795555347732,
+      "tag": "0065_panoramic_the_twelve",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1795556306975,
+      "tag": "0066_productive_darkhawk",
+      "breakpoints": true
     }
   ]
 }

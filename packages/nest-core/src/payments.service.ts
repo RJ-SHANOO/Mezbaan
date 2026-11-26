@@ -1,9 +1,10 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { allocate, money, type Money } from "@mezbaan/domain";
 import { and, eq, sql } from "drizzle-orm";
 import { schema, withTenant, type Database } from "@mezbaan/db";
 import { AuditLogService } from "./audit-log.service.js";
 import { DATABASE } from "./db.module.js";
+import { OutboxService } from "./outbox.service.js";
 import { PaymentMethodSettingsService, type PaymentMethod } from "./payment-method-settings.service.js";
 
 export interface PaymentRecord {
@@ -68,6 +69,11 @@ export class PaymentsService {
     @Inject(DATABASE) private readonly db: Database,
     private readonly auditLogService: AuditLogService,
     private readonly paymentMethodSettingsService: PaymentMethodSettingsService,
+    // P3-34: optional for the same reason InvoicesService's is — every
+    // existing test instantiating PaymentsService directly with 3
+    // arguments still compiles unchanged. Without it, record() simply
+    // doesn't enqueue a commission job.
+    @Optional() private readonly outboxService?: OutboxService,
   ) {}
 
   async record(params: RecordPaymentParams): Promise<PaymentRecord> {
@@ -139,6 +145,14 @@ export class PaymentsService {
             changeMinor: payment.changeMinor.toString(),
           },
         },
+        tx,
+      );
+
+      // P3-34: same transaction as the payment insert — if this commits, a
+      // commission entry is guaranteed to eventually be processed; if the
+      // transaction rolls back, no orphaned outbox row is left behind.
+      await this.outboxService?.record(
+        { restaurantId: params.restaurantId, aggregateType: "payment", aggregateId: payment.id, eventType: "payment.recorded", payload: { paymentId: payment.id } },
         tx,
       );
 

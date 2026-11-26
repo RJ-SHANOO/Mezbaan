@@ -83,6 +83,7 @@ export { wastageReasonCodes } from "./wastage-reason-codes.js";
 export { wastageLimitSettings } from "./wastage-limit-settings.js";
 export { wastageEntries } from "./wastage-entries.js";
 export { itemParLevels } from "./item-par-levels.js";
+export { commissionEntries } from "./commission-entries.js";
 export { inventoryItems } from "./inventory-items.js";
 export { inventoryItemUnitConversions } from "./inventory-item-unit-conversions.js";
 export { stockLedger } from "./stock-ledger.js";

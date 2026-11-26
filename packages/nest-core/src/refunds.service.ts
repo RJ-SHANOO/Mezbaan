@@ -1,9 +1,10 @@
-import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { schema, withTenant, type Database } from "@mezbaan/db";
 import { AuditLogService } from "./audit-log.service.js";
 import { DATABASE } from "./db.module.js";
 import { ManagerPinService } from "./manager-pin.service.js";
+import { OutboxService } from "./outbox.service.js";
 import { RecipesService } from "./recipes.service.js";
 import { StockLedgerService } from "./stock-ledger.service.js";
 import { expandLineIngredients, findDefaultSaleDeductionLocation } from "./stock-deduction-shared.js";
@@ -105,6 +106,11 @@ export class RefundsService {
     private readonly managerPinService: ManagerPinService,
     private readonly recipesService: RecipesService,
     private readonly stockLedgerService: StockLedgerService,
+    // P3-35: optional for the same reason PaymentsService's is — every
+    // existing test instantiating RefundsService directly still compiles
+    // unchanged. Without it, issue() simply doesn't enqueue a commission
+    // reversal job.
+    @Optional() private readonly outboxService?: OutboxService,
   ) {}
 
   async listReasonCodes(restaurantId: string): Promise<RefundReasonCodeRecord[]> {
@@ -221,6 +227,14 @@ export class RefundsService {
         // nothing further to record, see this service's own docs.
         await this.requireItemsBelongToInvoice(tx, params.invoiceId, params.itemIds);
       }
+
+      // P3-35: same transaction as the refund insert — if this commits, a
+      // commission reversal is guaranteed to eventually be processed; if
+      // the transaction rolls back, no orphaned outbox row is left behind.
+      await this.outboxService?.record(
+        { restaurantId: params.restaurantId, aggregateType: "refund", aggregateId: refund.id, eventType: "refund.issued", payload: { refundId: refund.id } },
+        tx,
+      );
 
       return refund as RefundRecord;
     });

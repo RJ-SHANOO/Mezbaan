@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import {
   AuditLogService,
+  CommissionService,
   DbModule,
   HealthController,
   MetricsController,
@@ -16,6 +17,7 @@ import {
   TaxRulesService,
   TaxSettingsService,
 } from "@mezbaan/nest-core";
+import { CommissionHandlerProvider } from "./commission-handler.provider.js";
 import { ReconciliationHandlerProvider } from "./reconciliation-handler.provider.js";
 import { SalesStockDeductionHandlerProvider } from "./sales-stock-deduction-handler.provider.js";
 
@@ -53,6 +55,8 @@ const DEFAULT_APP_DATABASE_URL = "postgres://mezbaan_app:mezbaan_app_dev_passwor
     StockLedgerService,
     SalesStockDeductionService,
     SalesStockDeductionHandlerProvider,
+    CommissionService,
+    CommissionHandlerProvider,
   ],
 })
 export class AppModule {}
