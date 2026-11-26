@@ -1,6 +1,6 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { schema, withTenant, type Database } from "@mezbaan/db";
 import { AuditLogService } from "./audit-log.service.js";
 import { decodeCursor, seekCondition, toPage, type CursorFields, type Page } from "./cursor-pagination.js";
@@ -51,6 +51,17 @@ export interface RecordMovementParams {
   note?: string;
 }
 
+export interface RecordSaleDeductionsParams {
+  restaurantId: string;
+  actorUserId: string;
+  storageLocationId: string;
+  invoiceId: string;
+  /** itemId -> total quantity to deduct, always a positive magnitude —
+   * this method negates it onto the ledger/stock_levels itself, same sign
+   * convention `recordMovementInTx` callers already follow for a "sale". */
+  deductions: Map<string, number>;
+}
+
 export interface RecordTransferParams {
   restaurantId: string;
   actorUserId: string;
@@ -71,6 +82,19 @@ export interface ListMovementsParams {
   invoiceId?: string;
   cursor?: string;
   limit?: number;
+}
+
+export interface GetAuditTrailParams {
+  restaurantId: string;
+  storageLocationId: string;
+  itemId: string;
+}
+
+export interface AuditTrailEntryRecord extends StockMovementRecord {
+  /** The resulting on-hand quantity at this location right after this
+   * movement — see `getAuditTrail`'s own docs for why this is computed
+   * by replay rather than stored on stock_ledger itself. */
+  balanceAfter: number;
 }
 
 const DEFAULT_LIST_LIMIT = 20;
@@ -187,6 +211,105 @@ export class StockLedgerService {
     }
 
     return movement;
+  }
+
+  /**
+   * P3-42: the set-based sibling of `recordMovementInTx`, for exactly the
+   * one case that's safe to batch this way — a "sale" deduction, always a
+   * decrease, which per `StockLevelsService.applyDelta`'s own rule never
+   * touches the running average cost at all. That's what makes one
+   * bulk `INSERT ... ON CONFLICT DO UPDATE` safe here: every row's new
+   * quantity is simply "whatever it already was, plus this row's own
+   * signed delta" (`excluded.quantity` in the ON CONFLICT branch; the
+   * VALUES row's own `quantity` in the fresh-insert branch, since a brand
+   * new row starts from zero) — no cost blending, so no row needs to see
+   * another row's result first the way an increase would. SalesStockDeductionService's own invoiceId-based pre-check (not this
+   * method) is what keeps the whole call idempotent — this method has no
+   * idempotency guard of its own, same division of responsibility as
+   * `recordMovementInTx`/`deductForInvoice` already have.
+   */
+  async recordSaleDeductionsInTx(tx: Database, params: RecordSaleDeductionsParams): Promise<StockMovementRecord[]> {
+    if (params.deductions.size === 0) return [];
+
+    const location = await this.requireLocation(tx, params.storageLocationId);
+
+    const itemIds = [...params.deductions.keys()];
+    const itemRows = await tx.select({ id: schema.inventoryItems.id }).from(schema.inventoryItems).where(inArray(schema.inventoryItems.id, itemIds));
+    if (itemRows.length !== itemIds.length) throw new NotFoundException(ITEM_NOT_FOUND);
+
+    const signedDeltaByItemId = new Map(itemIds.map((itemId) => [itemId, -(params.deductions.get(itemId) ?? 0)]));
+
+    const updatedLevels = await tx
+      .insert(schema.stockLevels)
+      .values(
+        itemIds.map((itemId) => ({
+          restaurantId: params.restaurantId,
+          branchId: location.branchId,
+          storageLocationId: params.storageLocationId,
+          itemId,
+          quantity: signedDeltaByItemId.get(itemId) ?? 0,
+        })),
+      )
+      .onConflictDoUpdate({
+        target: [schema.stockLevels.storageLocationId, schema.stockLevels.itemId],
+        set: { quantity: sql`${schema.stockLevels.quantity} + excluded.quantity`, updatedAt: new Date() },
+      })
+      .returning({ itemId: schema.stockLevels.itemId, quantity: schema.stockLevels.quantity, averageCostMinor: schema.stockLevels.averageCostMinor, currency: schema.stockLevels.currency });
+    const levelByItemId = new Map(updatedLevels.map((row) => [row.itemId, row]));
+
+    const movementRows = await tx
+      .insert(schema.stockLedger)
+      .values(
+        itemIds.map((itemId) => {
+          const level = levelByItemId.get(itemId);
+          return {
+            restaurantId: params.restaurantId,
+            branchId: location.branchId,
+            storageLocationId: params.storageLocationId,
+            itemId,
+            movementType: "sale" as const,
+            quantityDelta: signedDeltaByItemId.get(itemId) ?? 0,
+            invoiceId: params.invoiceId,
+            unitCostMinor: level?.averageCostMinor ?? null,
+            currency: level?.currency ?? null,
+            actorUserId: params.actorUserId,
+          };
+        }),
+      )
+      .returning();
+
+    await this.auditLogService.record(
+      {
+        restaurantId: params.restaurantId,
+        branchId: location.branchId,
+        actorUserId: params.actorUserId,
+        action: "stock_ledger.sale_deduction_batch_recorded",
+        targetType: "invoice",
+        targetId: params.invoiceId,
+        metadata: { itemCount: movementRows.length, itemIds },
+      },
+      tx,
+    );
+
+    // Rule 12: never block the sale itself — this only ever flags an item
+    // for later review, after it's already recorded. Same check as
+    // recordMovementInTx's, just against the batch's own returned rows
+    // instead of a single snapshot.
+    for (const movement of movementRows) {
+      const level = levelByItemId.get(movement.itemId);
+      if (level && level.quantity < 0) {
+        await this.negativeStockFlagsService.create(tx, {
+          restaurantId: params.restaurantId,
+          branchId: location.branchId,
+          storageLocationId: params.storageLocationId,
+          itemId: movement.itemId,
+          stockLedgerId: movement.id,
+          quantityAfter: level.quantity,
+        });
+      }
+    }
+
+    return movementRows;
   }
 
   /** Always two rows, sharing a new transferGroupId: a negative entry at
@@ -311,6 +434,37 @@ export class StockLedgerService {
         .limit(limit + 1),
     );
     return toPage(rows, limit, (row) => ({ createdAt: row.createdAt, id: row.id }));
+  }
+
+  /**
+   * P3-30: the full history behind one (storage location, item) pair's
+   * current stock number — every movement that ever touched it, oldest
+   * first, each annotated with the resulting on-hand quantity right
+   * after it. `balanceAfter` is computed by replaying every row in
+   * order rather than stored on stock_ledger itself — same
+   * derive-don't-duplicate reasoning as stock_levels.ts's own relationship
+   * to the ledger (and the same replay `StockLevelsService.rebuild` already
+   * does, just scoped to one pair instead of the whole table and exposed as
+   * a queryable view rather than an internal integrity check). Deliberately
+   * not paginated like `list()` — a single item's own lifetime history at
+   * one location is bounded by how often that specific item moves, not by
+   * the size of the restaurant's overall ledger, so a full in-order replay
+   * here is the same scale of work `rebuild` already treats as acceptable.
+   */
+  async getAuditTrail(params: GetAuditTrailParams): Promise<AuditTrailEntryRecord[]> {
+    const rows = await withTenant(this.db, { restaurantId: params.restaurantId }, (tx) =>
+      tx
+        .select()
+        .from(schema.stockLedger)
+        .where(and(eq(schema.stockLedger.storageLocationId, params.storageLocationId), eq(schema.stockLedger.itemId, params.itemId)))
+        .orderBy(schema.stockLedger.createdAt, schema.stockLedger.id),
+    );
+
+    let balance = 0;
+    return rows.map((row) => {
+      balance += row.quantityDelta;
+      return { ...row, balanceAfter: balance };
+    });
   }
 
   private async requireItem(tx: Database, itemId: string): Promise<void> {

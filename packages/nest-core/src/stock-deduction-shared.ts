@@ -1,5 +1,6 @@
-import { add, money, requiredRawQuantity, scaleMoneyByQuantity, type Money } from "@mezbaan/domain";
-import { eq, and } from "drizzle-orm";
+import { BadRequestException } from "@nestjs/common";
+import { add, convertQuantity, money, requiredRawQuantity, scaleMoneyByQuantity, type Money } from "@mezbaan/domain";
+import { eq, and, inArray, or } from "drizzle-orm";
 import { schema, type Database } from "@mezbaan/db";
 import { convertItemQuantityToBaseUnit } from "./item-quantity-conversion.js";
 import type { RecipesService } from "./recipes.service.js";
@@ -76,6 +77,160 @@ export async function expandLineIngredients(tx: Database, recipesService: Recipe
   }
 
   return { required, baseRecipeId: baseRecipe?.id ?? null, baseRecipeVersion: baseRecipe?.version ?? null };
+}
+
+export interface InvoiceLineInput extends SoldLine {
+  orderItemId: string;
+}
+
+export interface ExpandedInvoiceLine {
+  orderItemId: string;
+  required: Map<string, number>;
+  baseRecipeId: string | null;
+  baseRecipeVersion: number | null;
+}
+
+export interface ExpandedInvoiceIngredients {
+  perItem: ExpandedInvoiceLine[];
+  /** Every line's `required` map, summed together — what
+   * SalesStockDeductionService actually writes to stock_ledger. */
+  totalRequired: Map<string, number>;
+}
+
+/**
+ * P3-42: the set-based sibling of `expandLineIngredients` — computes the
+ * exact same thing for every line on an invoice at once, in a handful of
+ * queries total instead of several per line (a recipe lookup, a modifier
+ * recipe lookup per selected modifier, and an item+conversion lookup per
+ * recipe line, all repeated for every item on the invoice). Fetches every
+ * recipe, recipe line, inventory item and unit conversion this invoice
+ * could possibly need up front, then replays `expandLineIngredients`'s own
+ * per-line math (requiredRawQuantity + convertQuantity) purely in memory —
+ * same output, same rounding, just not one round trip per line.
+ */
+export async function expandInvoiceIngredientsBatch(tx: Database, restaurantId: string, lines: InvoiceLineInput[]): Promise<ExpandedInvoiceIngredients> {
+  const productIds = [...new Set(lines.map((line) => line.productId).filter((id): id is string => id !== null))];
+  const variantIds = [...new Set(lines.map((line) => line.variantId).filter((id): id is string => id !== null))];
+  const modifierOptionIds = [...new Set(lines.flatMap((line) => line.modifiers.map((modifier) => modifier.modifierOptionId)))];
+
+  const ownerConditions = [
+    productIds.length > 0 ? inArray(schema.recipes.productId, productIds) : undefined,
+    variantIds.length > 0 ? inArray(schema.recipes.variantId, variantIds) : undefined,
+    modifierOptionIds.length > 0 ? inArray(schema.recipes.modifierOptionId, modifierOptionIds) : undefined,
+  ].filter((condition): condition is NonNullable<typeof condition> => condition !== undefined);
+
+  const recipeRows = ownerConditions.length === 0 ? [] : await tx.select().from(schema.recipes).where(and(eq(schema.recipes.restaurantId, restaurantId), or(...ownerConditions)));
+
+  const recipeByProductId = new Map(recipeRows.filter((recipe) => recipe.productId !== null).map((recipe) => [recipe.productId as string, recipe]));
+  const recipeByVariantId = new Map(recipeRows.filter((recipe) => recipe.variantId !== null).map((recipe) => [recipe.variantId as string, recipe]));
+  const recipeByModifierOptionId = new Map(recipeRows.filter((recipe) => recipe.modifierOptionId !== null).map((recipe) => [recipe.modifierOptionId as string, recipe]));
+
+  const recipeIds = recipeRows.map((recipe) => recipe.id);
+  const recipeItemRows = recipeIds.length === 0 ? [] : await tx.select().from(schema.recipeItems).where(inArray(schema.recipeItems.recipeId, recipeIds));
+  const recipeItemsByRecipeId = new Map<string, (typeof recipeItemRows)[number][]>();
+  for (const recipeItem of recipeItemRows) {
+    const list = recipeItemsByRecipeId.get(recipeItem.recipeId) ?? [];
+    list.push(recipeItem);
+    recipeItemsByRecipeId.set(recipeItem.recipeId, list);
+  }
+
+  const ingredientItemIds = [...new Set(recipeItemRows.map((recipeItem) => recipeItem.itemId))];
+  const ingredientItemRows =
+    ingredientItemIds.length === 0
+      ? []
+      : await tx.select({ id: schema.inventoryItems.id, baseUnitId: schema.inventoryItems.baseUnitId }).from(schema.inventoryItems).where(inArray(schema.inventoryItems.id, ingredientItemIds));
+  const baseUnitIdByItemId = new Map(ingredientItemRows.map((row) => [row.id, row.baseUnitId]));
+
+  const conversionRows =
+    ingredientItemIds.length === 0 ? [] : await tx.select().from(schema.inventoryItemUnitConversions).where(inArray(schema.inventoryItemUnitConversions.itemId, ingredientItemIds));
+  const conversionFactorsByItemId = new Map<string, Map<string, number>>();
+  for (const conversion of conversionRows) {
+    const factors = conversionFactorsByItemId.get(conversion.itemId) ?? new Map<string, number>();
+    factors.set(conversion.unitId, conversion.factorToBaseUnit);
+    conversionFactorsByItemId.set(conversion.itemId, factors);
+  }
+
+  const convertToBaseUnit = (itemId: string, quantity: number, fromUnitId: string): number => {
+    const baseUnitId = baseUnitIdByItemId.get(itemId);
+    if (!baseUnitId) throw new BadRequestException(`expandInvoiceIngredientsBatch: inventory item ${itemId} referenced by a recipe line was not found`);
+    try {
+      return convertQuantity(quantity, fromUnitId, baseUnitId, baseUnitId, conversionFactorsByItemId.get(itemId) ?? new Map());
+    } catch (error) {
+      throw new BadRequestException(error instanceof Error ? error.message : "Couldn't convert this line's unit to the item's own base unit");
+    }
+  };
+
+  const perItem: ExpandedInvoiceLine[] = [];
+  const totalRequired = new Map<string, number>();
+  const addTotal = (itemId: string, quantity: number) => totalRequired.set(itemId, (totalRequired.get(itemId) ?? 0) + quantity);
+
+  for (const line of lines) {
+    const required = new Map<string, number>();
+    const addRequired = (itemId: string, quantity: number) => required.set(itemId, (required.get(itemId) ?? 0) + quantity);
+
+    const baseRecipe = line.productId ? recipeByProductId.get(line.productId) : line.variantId ? recipeByVariantId.get(line.variantId) : undefined;
+
+    if (baseRecipe) {
+      for (const recipeLine of recipeItemsByRecipeId.get(baseRecipe.id) ?? []) {
+        const neededInLineUnit = recipeLine.quantity * line.quantity;
+        const rawInLineUnit = requiredRawQuantity(neededInLineUnit, recipeLine.yieldPercent);
+        addRequired(recipeLine.itemId, convertToBaseUnit(recipeLine.itemId, rawInLineUnit, recipeLine.unitId));
+      }
+    }
+
+    for (const modifier of line.modifiers) {
+      const modifierRecipe = recipeByModifierOptionId.get(modifier.modifierOptionId);
+      if (!modifierRecipe) continue;
+      for (const recipeLine of recipeItemsByRecipeId.get(modifierRecipe.id) ?? []) {
+        const neededInLineUnit = recipeLine.quantity * modifier.quantity * line.quantity;
+        const rawInLineUnit = requiredRawQuantity(neededInLineUnit, recipeLine.yieldPercent);
+        addRequired(recipeLine.itemId, convertToBaseUnit(recipeLine.itemId, rawInLineUnit, recipeLine.unitId));
+      }
+    }
+
+    for (const [itemId, quantity] of required) addTotal(itemId, quantity);
+    perItem.push({ orderItemId: line.orderItemId, required, baseRecipeId: baseRecipe?.id ?? null, baseRecipeVersion: baseRecipe?.version ?? null });
+  }
+
+  return { perItem, totalRequired };
+}
+
+/**
+ * P3-42: the set-based sibling of `computeLineCost` — reads every
+ * required ingredient's current stock_levels row in one query instead of
+ * one per ingredient, then prices each line purely in memory. Same
+ * read-only, pre-deduction timing guarantee as `computeLineCost` (a
+ * decrease never changes the average, so it doesn't matter that this
+ * runs before the matching stock_ledger writes).
+ */
+export async function computeInvoiceLineCostsBatch(
+  tx: Database,
+  storageLocationId: string,
+  perItem: ExpandedInvoiceLine[],
+): Promise<Map<string, Money | null>> {
+  const allItemIds = [...new Set(perItem.flatMap((line) => [...line.required.keys()]))];
+  const levelRows =
+    allItemIds.length === 0
+      ? []
+      : await tx
+          .select({ itemId: schema.stockLevels.itemId, averageCostMinor: schema.stockLevels.averageCostMinor, currency: schema.stockLevels.currency })
+          .from(schema.stockLevels)
+          .where(and(eq(schema.stockLevels.storageLocationId, storageLocationId), inArray(schema.stockLevels.itemId, allItemIds)));
+  const levelByItemId = new Map(levelRows.map((row) => [row.itemId, row]));
+
+  const costByOrderItemId = new Map<string, Money | null>();
+  for (const line of perItem) {
+    let total: Money | null = null;
+    for (const [itemId, quantity] of line.required) {
+      if (quantity === 0) continue;
+      const level = levelByItemId.get(itemId);
+      if (!level || level.averageCostMinor === null || level.currency === null) continue;
+      const lineCost = scaleMoneyByQuantity(money(level.averageCostMinor, level.currency), quantity);
+      total = total ? add(total, lineCost) : lineCost;
+    }
+    costByOrderItemId.set(line.orderItemId, total);
+  }
+  return costByOrderItemId;
 }
 
 /**

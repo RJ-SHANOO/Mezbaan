@@ -1,8 +1,16 @@
 import { Body, Controller, Get, Post, Query, UnauthorizedException } from "@nestjs/common";
-import { ListStockMovementsQuerySchema, RecordStockMovementSchema, RecordTransferSchema, type StockMovement, type StockMovementPage } from "@mezbaan/contracts";
+import {
+  GetAuditTrailQuerySchema,
+  ListStockMovementsQuerySchema,
+  RecordStockMovementSchema,
+  RecordTransferSchema,
+  type AuditTrailEntry,
+  type StockMovement,
+  type StockMovementPage,
+} from "@mezbaan/contracts";
 import { getTenantContext } from "./tenant-context.js";
 import { RequirePermission } from "./permission.decorator.js";
-import { StockLedgerService, type StockMovementRecord } from "./stock-ledger.service.js";
+import { StockLedgerService, type AuditTrailEntryRecord, type StockMovementRecord } from "./stock-ledger.service.js";
 import { parseOrBadRequest } from "./validation.js";
 
 function toMovementResponse(movement: StockMovementRecord): StockMovement {
@@ -22,6 +30,10 @@ function toMovementResponse(movement: StockMovementRecord): StockMovement {
     actorUserId: movement.actorUserId,
     createdAt: movement.createdAt.toISOString(),
   };
+}
+
+function toAuditTrailEntryResponse(entry: AuditTrailEntryRecord): AuditTrailEntry {
+  return { ...toMovementResponse(entry), balanceAfter: entry.balanceAfter };
 }
 
 @Controller("stock-ledger")
@@ -58,6 +70,15 @@ export class StockLedgerController {
     const request = parseOrBadRequest(RecordTransferSchema, body);
     const { outbound, inbound } = await this.stockLedgerService.recordTransfer({ ...request, restaurantId: tenant.restaurantId, actorUserId: tenant.userId });
     return { outbound: toMovementResponse(outbound), inbound: toMovementResponse(inbound) };
+  }
+
+  @Get("audit-trail")
+  @RequirePermission("inventory.adjust")
+  async getAuditTrail(@Query() query: unknown): Promise<AuditTrailEntry[]> {
+    const tenant = requireTenant();
+    const request = parseOrBadRequest(GetAuditTrailQuerySchema, query);
+    const entries = await this.stockLedgerService.getAuditTrail({ restaurantId: tenant.restaurantId, ...request });
+    return entries.map(toAuditTrailEntryResponse);
   }
 }
 

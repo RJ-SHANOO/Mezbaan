@@ -2,10 +2,8 @@ import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { schema, withTenant, type Database } from "@mezbaan/db";
 import { DATABASE } from "./db.module.js";
-import { RecipesService } from "./recipes.service.js";
 import { StockLedgerService, type StockMovementRecord } from "./stock-ledger.service.js";
-import { StockLevelsService } from "./stock-levels.service.js";
-import { computeLineCost, expandLineIngredients, findDefaultSaleDeductionLocation } from "./stock-deduction-shared.js";
+import { computeInvoiceLineCostsBatch, expandInvoiceIngredientsBatch, findDefaultSaleDeductionLocation } from "./stock-deduction-shared.js";
 
 export interface DeductStockForInvoiceParams {
   restaurantId: string;
@@ -62,11 +60,22 @@ const INVOICE_NOT_FOUND = "Invoice not found";
  *
  * P3-19: also writes one order_item_food_costs row per item, pricing its
  * own ingredient requirements at whatever each one's weighted-average
- * cost already is (computeLineCost — read-only, taken before any of this
- * call's own stock_ledger writes, though it wouldn't matter either way
- * since a decrease never moves the average). See that table's own docs
- * for why only the item's *base* recipe id/version is stamped, not its
+ * cost already is (read-only, taken before any of this call's own
+ * stock_ledger writes, though it wouldn't matter either way since a
+ * decrease never moves the average). See that table's own docs for why
+ * only the item's *base* recipe id/version is stamped, not its
  * modifiers'.
+ *
+ * P3-42: expansion, costing and the actual writes are all set-based —
+ * one fetch of every recipe/conversion/stock-level this invoice could
+ * need, one bulk insert of every order_item_food_costs row, one bulk
+ * insert of every stock_ledger row — regardless of how many items or
+ * distinct ingredients the invoice carries. See
+ * expandInvoiceIngredientsBatch/computeInvoiceLineCostsBatch/
+ * StockLedgerService.recordSaleDeductionsInTx for why each one is safe to
+ * batch this way. The idempotency guard below is unchanged by any of
+ * this — still the first thing checked, still what actually prevents a
+ * double deduction.
  */
 @Injectable()
 export class SalesStockDeductionService {
@@ -74,9 +83,7 @@ export class SalesStockDeductionService {
 
   constructor(
     @Inject(DATABASE) private readonly db: Database,
-    private readonly recipesService: RecipesService,
     private readonly stockLedgerService: StockLedgerService,
-    private readonly stockLevelsService: StockLevelsService,
   ) {}
 
   async deductForInvoice(params: DeductStockForInvoiceParams): Promise<DeductStockForInvoiceResult> {
@@ -109,56 +116,48 @@ export class SalesStockDeductionService {
         modifiersByItem.set(modifier.orderItemId, list);
       }
 
-      const requiredBaseQuantity = new Map<string, number>();
-      const addRequirement = (itemId: string, quantity: number) => requiredBaseQuantity.set(itemId, (requiredBaseQuantity.get(itemId) ?? 0) + quantity);
-
-      // Per-item, not just aggregated: P3-19 needs each item's own recipe
-      // id/version and cost, which the combined requiredBaseQuantity map
-      // below (used only for the actual ledger writes, one row per
-      // distinct ingredient across the whole invoice) can't give back.
-      const foodCostInputs: Array<{ item: (typeof items)[number]; required: Map<string, number>; baseRecipeId: string | null; baseRecipeVersion: number | null }> = [];
-      for (const item of items) {
-        const expanded = await expandLineIngredients(tx, this.recipesService, params.restaurantId, {
+      const { perItem, totalRequired } = await expandInvoiceIngredientsBatch(
+        tx,
+        params.restaurantId,
+        items.map((item) => ({
+          orderItemId: item.id,
           productId: item.productId,
           variantId: item.variantId,
           quantity: item.quantity,
           modifiers: (modifiersByItem.get(item.id) ?? []).map((modifier) => ({ modifierOptionId: modifier.modifierOptionId, quantity: modifier.quantity })),
-        });
-        foodCostInputs.push({ item, required: expanded.required, baseRecipeId: expanded.baseRecipeId, baseRecipeVersion: expanded.baseRecipeVersion });
-        for (const [itemId, quantity] of expanded.required) addRequirement(itemId, quantity);
-      }
+        })),
+      );
 
       // Priced before any of this call's own writes (see this service's own
       // docs — a decrease never changes the average, so order doesn't
       // actually matter, but reading first keeps that guarantee obvious).
-      for (const { item, required, baseRecipeId, baseRecipeVersion } of foodCostInputs) {
-        const cost = await computeLineCost(tx, this.stockLevelsService, params.restaurantId, defaultLocation.id, required);
-        await tx.insert(schema.orderItemFoodCosts).values({
-          restaurantId: params.restaurantId,
-          branchId: invoice.branchId,
-          orderItemId: item.id,
-          invoiceId: params.invoiceId,
-          recipeId: baseRecipeId,
-          recipeVersion: baseRecipeVersion,
-          costMinor: cost?.amountMinor ?? null,
-          currency: cost?.currency ?? null,
-        });
+      const costByOrderItemId = await computeInvoiceLineCostsBatch(tx, defaultLocation.id, perItem);
+      if (perItem.length > 0) {
+        await tx.insert(schema.orderItemFoodCosts).values(
+          perItem.map((line) => {
+            const cost = costByOrderItemId.get(line.orderItemId) ?? null;
+            return {
+              restaurantId: params.restaurantId,
+              branchId: invoice.branchId,
+              orderItemId: line.orderItemId,
+              invoiceId: params.invoiceId,
+              recipeId: line.baseRecipeId,
+              recipeVersion: line.baseRecipeVersion,
+              costMinor: cost?.amountMinor ?? null,
+              currency: cost?.currency ?? null,
+            };
+          }),
+        );
       }
 
-      const deducted: StockMovementRecord[] = [];
-      for (const [itemId, quantity] of requiredBaseQuantity) {
-        if (quantity === 0) continue;
-        const movement = await this.stockLedgerService.recordMovementInTx(tx, {
-          restaurantId: params.restaurantId,
-          actorUserId: invoice.actorUserId,
-          storageLocationId: defaultLocation.id,
-          itemId,
-          movementType: "sale",
-          quantityDelta: -quantity,
-          invoiceId: params.invoiceId,
-        });
-        deducted.push(movement);
-      }
+      const deductions = new Map([...totalRequired].filter(([, quantity]) => quantity !== 0));
+      const deducted = await this.stockLedgerService.recordSaleDeductionsInTx(tx, {
+        restaurantId: params.restaurantId,
+        actorUserId: invoice.actorUserId,
+        storageLocationId: defaultLocation.id,
+        invoiceId: params.invoiceId,
+        deductions,
+      });
 
       return { invoiceId: params.invoiceId, deducted };
     });

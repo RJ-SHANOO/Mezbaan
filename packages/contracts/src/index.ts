@@ -656,6 +656,10 @@ export {
   type ListStockMovementsQuery,
   StockMovementPageSchema,
   type StockMovementPage,
+  AuditTrailEntrySchema,
+  type AuditTrailEntry,
+  GetAuditTrailQuerySchema,
+  type GetAuditTrailQuery,
 } from "./stock-ledger.js";
 export {
   StockLevelSchema,

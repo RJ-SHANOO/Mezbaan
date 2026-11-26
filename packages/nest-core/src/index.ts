@@ -593,6 +593,8 @@ export {
   type RecordMovementParams,
   type RecordTransferParams,
   type ListMovementsParams,
+  type GetAuditTrailParams,
+  type AuditTrailEntryRecord,
 } from "./stock-ledger.service.js";
 export { StockLedgerController } from "./stock-ledger.controller.js";
 export {

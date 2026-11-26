@@ -75,5 +75,16 @@ export const ListStockMovementsQuerySchema = z.object({
 });
 export type ListStockMovementsQuery = z.infer<typeof ListStockMovementsQuerySchema>;
 
+export const AuditTrailEntrySchema = StockMovementSchema.extend({
+  balanceAfter: z.number(),
+});
+export type AuditTrailEntry = z.infer<typeof AuditTrailEntrySchema>;
+
+export const GetAuditTrailQuerySchema = z.object({
+  storageLocationId: z.string().uuid(),
+  itemId: z.string().uuid(),
+});
+export type GetAuditTrailQuery = z.infer<typeof GetAuditTrailQuerySchema>;
+
 export const StockMovementPageSchema = pageResponseSchema(StockMovementSchema);
 export type StockMovementPage = z.infer<typeof StockMovementPageSchema>;
