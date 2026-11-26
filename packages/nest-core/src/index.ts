@@ -116,6 +116,16 @@ export {
   type CommissionRunSchedulerOptions,
 } from "./commission-run-scheduler.service.js";
 export { CommissionRunModule } from "./commission-run.module.js";
+export {
+  SettlementStatementsService,
+  type SettlementStatementRecord,
+  type SettlementPaymentRecord,
+  type CreateStatementForRunParams,
+  type SettlementBalance,
+  type RecordSettlementPaymentParams,
+} from "./settlement-statements.service.js";
+export { SettlementStatementsController } from "./settlement-statements.controller.js";
+export { SettlementStatementsModule } from "./settlement-statements.module.js";
 export { SyncService, type ReceiveBatchParams } from "./sync.service.js";
 export { SyncController } from "./sync.controller.js";
 export { SyncModule } from "./sync.module.js";

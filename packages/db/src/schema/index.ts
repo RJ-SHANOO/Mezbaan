@@ -15,6 +15,8 @@ export { featureFlags } from "./feature-flags.js";
 export { billingPlanSettings } from "./billing-plan-settings.js";
 export { commissionRuns } from "./commission-runs.js";
 export { commissionRunCursors } from "./commission-run-cursors.js";
+export { settlementStatements } from "./settlement-statements.js";
+export { settlementPayments } from "./settlement-payments.js";
 export { syncOperations } from "./sync-operations.js";
 export { outbox } from "./outbox.js";
 export { categories } from "./categories.js";

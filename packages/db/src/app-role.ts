@@ -42,6 +42,8 @@ REVOKE UPDATE, DELETE ON supplier_ledger_entries FROM mezbaan_app;
 REVOKE UPDATE, DELETE ON wastage_entries FROM mezbaan_app;
 REVOKE UPDATE, DELETE ON commission_entries FROM mezbaan_app;
 REVOKE UPDATE, DELETE ON commission_runs FROM mezbaan_app;
+REVOKE UPDATE, DELETE ON settlement_statements FROM mezbaan_app;
+REVOKE UPDATE, DELETE ON settlement_payments FROM mezbaan_app;
 
 -- Commission rate locked at registration (rule 7): revoke the blanket UPDATE the
 -- broad grant above just gave and re-grant it only for the columns allowed to change
