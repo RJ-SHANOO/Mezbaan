@@ -527,6 +527,54 @@ Attempting to build an automated fault-injection simulation for Phase 2's exit g
 
 Testing was explicitly deferred for all of P3-13 through P3-28 at the user's own instruction, to save tokens — production code only, with any *existing* test that broke from a schema/signature change fixed as a compile-level correction, never expanded. Verification for each task below is typecheck + lint + build across every touched package (`domain`/`db`/`contracts`/`nest-core`/`api-admin`/`api-pos`/`worker`, as relevant) plus a clean `drizzle-kit generate` pass and `migrate:check`, not a real test run — the live Postgres instance this session's e2e/unit suites need (port 5433, via Docker) was never running in this environment (Docker Desktop itself isn't installed here, only its CLI), the same pre-existing limitation earlier Phase 2 sessions hit.
 
+### P3-01
+
+New `kitchen_stations` (name, sort order, plus its own `printerHost`/`printerPort` — a station doubles as the printer-routing target P3-04 reads, not a separate config table) and `kitchen_routing_rules` (exactly one of `categoryId`/`productId` per rule, same "pick one owner" CHECK convention as recipes.ts/order_items.ts). `KitchenRoutingRulesService.resolveStation` is the actual lookup a ticket needs: a product-specific rule wins over a category-level one when both exist for the same product, falling back to "unrouted" (no matching rule at all) rather than erroring — an unrouted ticket still reaches the kitchen, just ungrouped on the display (P3-03).
+
+### P3-02
+
+`KitchenTicketsService` builds a ticket purely from `order_items`/`order_item_modifiers` for whatever was fired (P2-15) — `KitchenTicketItemRecord`/`KitchenTicketRecord` carry name, quantity, notes, seat/course, modifiers and a `voided` flag, and deliberately no price/money field anywhere in the shape (rule 18). `rush` is a per-ticket flag the cashier sets at fire time, not derived from anything. Backend only — the ticket's own display is P3-03's job.
+
+### P3-03
+
+The live kitchen queue: `KitchenTicketsTerminalController` (device-token authed, api-pos — the desktop app has no user login) exposes `GET /kitchen-tickets/terminal` (the station-grouped queue, oldest first), `GET .../order-ready` and `POST .../bump` / `.../recall`. New `kitchen_ticket_states` table is the exclusion-list convention again (same shape as `product_stock_status`/`feature_flags`): a bumped ticket is just a row here, keyed by `(orderId, firedAt, stationId)`; recalling it is a DELETE, putting it straight back in the live queue rather than flipping a flag. Two partial unique indexes (routed vs. unrouted tickets) are the real guard against a double-bump race, same two-layer convention as P2-16's table occupancy index. The actual display — `apps/desktop/src/kitchen/App.tsx`, a real Tauri window wired through `kitchen.html` — polls the terminal endpoint every 5s, shows a per-ticket elapsed timer color-coded past 5/10 minutes, groups by station, and raises an "order ready" banner once every ticket fired for an order (that still has a non-voided item) has been bumped.
+
+### P3-04
+
+`escpos.rs` already had everything a kitchen ticket needs (P2-31/33); this task is `kitchen_ticket_template.rs` (renders a `KitchenTicket` into real ESC/POS bytes — no money fields rendered, matching P3-02) plus a new `render_kitchen_ticket` Tauri command and `apps/desktop/src/kitchen/kitchen-print.ts`. The user's explicit choice (asked directly, not assumed): print *always* alongside the display, never a conditional fallback triggered by detecting "is the display actually up" — there's no reliable way to check that from here anyway, so the printed copy is simply the permanent safety net. Dedup is tracked in `localStorage` (keyed by the same `(orderId, firedAt, stationId)` identity P3-03 uses), pruned to the same 3-hour window the display polls, so a screen reload never reprints the whole backlog. A failed render/enqueue for one ticket is swallowed and retried on the next poll rather than blocking the rest (rule 14).
+
+### P3-05
+
+`apps/desktop/src/pos/offline-kitchen-ticket.ts` builds a `KitchenTicket`-shaped payload straight from the offline cart's own lines (P2-45) and relays it over the branch hub (P2-38's relay primitive, its first real non-synthetic caller) rather than through the server — there is no real server-side order yet for an offline sale until it syncs. `App.tsx` connects to the hub alongside its normal server poll and merges in any `kitchen_ticket`-kind entries; bump/recall for a hub-sourced ticket republishes to the hub instead of calling the server API, since there's no DB row yet for the server to update. Documented gap, not fixed here: an offline-fired ticket's `stationId` is always `null` (P3-01's routing rules are never synced to the terminal's local cache), so it always lands in "Unrouted" on the display — functionally correct (the kitchen still gets the ticket), just ungrouped.
+
+### P3-06
+
+`KitchenPrepTimeReportsService.getReport` — average/min/max seconds from `firedAt` to `bumpedAt`, grouped by station and product/variant, scoped to one branch's business day (same zoned-midnight convention P2-40 established). Read-only off `kitchen_ticket_states` + `order_items`; no new schema. Became the forcing function that caught P3-43's real NestJS DI bug (constructor params silently resolving to `undefined`) when it was wired into the BullMQ report-queue handler provider.
+
+### P3-07
+
+`inventory_categories` + `inventory_items` (SKU/barcode each unique per restaurant when set, same partial-unique-when-not-null convention as `products.ts`) + `storage_locations` (branch-scoped, a physical place stock can sit — "Main Store," "Kitchen Walk-in"). Reference/lookup tables only in this task — actual stock levels are derived from the ledger (P3-09/P3-10), never stored or assigned here. `storage_locations.isSaleDeductionDefault` (one flag, at most one true per branch via a partial unique index) is P3-17's eventual hook for "which location does an automatic sale deduction pull from," added here since it's a property of the location itself.
+
+### P3-08
+
+`units` (restaurant-defined — "Kilogram"/"kg," "Carton"/"ctn" — not a hardcoded global enum, since every restaurant's own suppliers and recipes measure differently) + `inventory_item_unit_conversions`, a star shape centered on each item's own `baseUnitId`: one row per alternate unit's `factorToBaseUnit`, never full pairwise from/to conversions. Converting between any two of an item's units always routes through its base unit. `inventory_items.purchaseUnitId` (nullable — null means "same as base unit") is what a purchase order (P3-21) defaults to.
+
+### P3-09
+
+New `stock_ledger` — append-only (rule 4; UPDATE/DELETE revoked in app-role.ts, same enforcement as invoices/payments/audit_logs) with all 8 movement types rule 9 of section 2 names: purchase, sale, return, wastage, adjustment, count, production, transfer. `quantityDelta` is a signed real number (positive or negative), not a type-implied direction — a later task reusing "return" for both a customer return (positive, P3-18) and a purchase return (negative, P3-24) is only possible because direction lives on the row, not the enum value. This task defines the shape only; every movement type sat with zero real callers until the task that specifically needed it (P3-16 production, P3-17 sale, P3-18 return/wastage, P3-21→24 purchase/return, P3-27 count) wired it up.
+
+### P3-10
+
+`stock_levels` — a materialized cache of `stock_ledger`, never a second source of truth. `StockLevelsService.applyDelta` is called by `StockLedgerService` inside the *same* transaction as every ledger insert (never its own), so the cache can never observably lag under normal operation. `rebuild` is the "verify, and optionally fix" tool the task explicitly asks for: replays the whole ledger from scratch (quantity and cost together — cost is path-dependent on the order movements happened in, unlike a plain sum) and diffs against what's actually stored, returning every discrepancy; `apply: true` additionally corrects them. Scoped by an optional `branchId`, since a real rebuild after a known-bad incident is usually about one branch, not an entire restaurant's full history.
+
+### P3-11
+
+`blendWeightedAverageCost` (`packages/domain`, no I/O) — folds a new costed increase into the running average; `StockLevelsService.applyDelta` is the only caller that ever supplies `unitCostMinor`/`currency`, and only for `quantityDelta > 0`. A decrease is always valued at whatever the *current* average already is, never changes it — the rule every other Phase 3 task (P3-17's sale deductions, P3-42's batch-safety argument) leans on afterward. The unit cost actually snapshotted onto each ledger row (`ApplyDeltaResult.unitCostMinor`) is the raw incoming delivery cost for a costed increase, the current average for everything else — distinct from the row's effect on the running average itself.
+
+### P3-12
+
+New `negative_stock_flags` (rule 12: "Offline stock may go negative. Record and flag it, and never block a sale because of it.") — `StockLedgerService.recordMovementInTx` checks the resulting quantity after every write and calls `NegativeStockFlagsService.create` in the same transaction when it's gone below zero, generic across every movement type (not sale-specific, despite the rule's own wording). `review` is the screen's real action — a flag is never deleted, only marked reviewed (and never twice), staying visible in history filtered by `reviewed`. New `negative-stock-flags.controller.ts` for the review screen to call.
+
 ### P3-13
 
 Recipes per product/variant: `recipes` (exactly-one-owner CHECK, same convention as `order_items.ts`/`price_list_items.ts`) + `recipe_items` (itemId/quantity/unitId/yieldPercent, CHECK quantity > 0 and 0 < yieldPercent <= 100). `RecipesService.createOrReplace` is the only write — a recipe has at most one set of lines at a time, full replace rather than per-line CRUD. Deliberately not versioned/immutable the way `price_lists.ts` is — P3-19 is the task that actually needs that, building it here would be guessing at requirements it hadn't specified yet.
@@ -594,3 +642,74 @@ New `approved` status on `stock_counts` + `ManagerPinService`-gated `approve()` 
 ### P3-28
 
 `WastageService` — a standalone stock loss with no sale, void, or purchase behind it (distinct from `VoidsService.recordWastage`'s void-triggered version from P3-18). New `wastage_reason_codes` (same inclusion-list convention as every other reason-code table) and `wastage_limit_settings`, an exact mirror of `discount_limit_settings.ts`'s own-authority-limit shape — except the limit is checked against the entry's *cost* (quantity × the item's current weighted-average cost, via the `computeLineCost` helper P3-19 already built), not the raw quantity, since a restaurant cares about value lost, not unit count. No limit configured, or no established cost to compare against, both mean "can't confirm this is within any limit" and both require approval — the same conservative default `discount_limit_settings` already uses.
+
+### P3-29
+
+`ParLevelsService` — `item_par_levels` (`minQuantity`/`parQuantity` per storage location + item) and `getLowStock`, which joins against `stock_levels` and returns every item currently at or below its own `minQuantity`. A dashboard-ready read (the task's own "alerts on the dashboard"), not a push notification — no polling/scheduling mechanism was asked for or built.
+
+### P3-30
+
+`GET /stock-ledger/audit-trail` — the "full history behind any stock number" the task names literally: every `stock_ledger` row for one `(storageLocationId, itemId)` pair, oldest first, with a running `balanceAfter` computed in memory as the rows are walked (not stored on the ledger row itself — rule 4's append-only table never gets a derived column added after the fact). Distinct from `StockLedgerController`'s plain `list` (filterable by branch/type/etc., no running balance) — the audit trail is specifically "show me how this one number got to where it is," item by item.
+
+### P3-31
+
+`InventoryReportsService.getStockOnHand`/`getStockValuation`/`getStockMovementReport` — the three reports this task names, all read-only off `stock_levels`/`stock_ledger`, no new schema. Stock-on-hand values each entry at `quantity × averageCostMinor`, leaving an item with no established cost yet contributing nothing to the total rather than guessing (same documented-understatement convention P3-16's production costing already accepts). Stock movement is scoped to a `fromBusinessDate`/`toBusinessDate` window, same zoned-business-day convention P2-40 established for sales reports.
+
+### P3-32
+
+`InventoryReportsService.getFoodCostVarianceReport` — theoretical cost (every sold item's recipe, priced at the ingredient's cost *at the time of sale* via P3-19's `order_item_food_costs` snapshot, never today's current cost) versus actual cost (the real stock_ledger "sale" + "wastage" movements over the same window, at whatever each was actually costed at). The variance is just the difference — a restaurant selling exactly what its recipes say it should, with no extra wastage, variances to zero by construction, which is the report's own correctness check as much as a business metric.
+
+### P3-33
+
+`InventoryReportsService.getWastageReport`/`getPurchaseReport`/`getSupplierActivityReport` — the three the task names. Wastage groups `wastage_entries` by reason code; purchases groups `goods_received_notes` by supplier; supplier activity is the one with no direct table of its own — it's purchased value (from goods-received-notes) and returned quantity (from P3-24's purchase returns) joined by `supplierId`, since there's no single "supplier activity" table to read from directly.
+
+### P3-34
+
+`CommissionService.processPayment` — one row per payment actually *collected* (never per invoice; a sale isn't platform revenue until it's paid), idempotent via a pre-write existence check against `commissionEntries.paymentId` (backed by that column's own unique index too) rather than relying solely on the outbox's retry-on-throw. `rateBasisPoints` is read fresh from `restaurants.commissionRateBasisPoints` at process time and frozen into the row forever — rule 7's own point, enforced again at the DB level since that column already has UPDATE revoked from everyone but the signup flow (P1-15).
+
+### P3-35
+
+`CommissionService.processRefund` — the compensating row P3-35 asks for: a signed-*negative* `"reversal"` entry in the same `commission_entries` table (not a separate one), idempotent the same way as a charge (pre-write check against `commissionEntries.refundId`). A fully refunded sale's charge + reversal nets to exactly zero platform commission, by construction rather than any special-cased "undo" logic.
+
+### P3-36
+
+The hybrid fixed + commission plan and configurable billing cycles live in `BillingPlanService`/`billing-plans` (restaurant-level: a flat fee amount, a commission rate, and a cycle length) — read fresh by `CommissionRunService.processPeriod` at run time, same "read now, snapshot onto the row" rule P3-34 already established for the plain commission rate.
+
+### P3-37
+
+`CommissionRunService` + `CommissionRunScheduler` — ties a restaurant's billing plan/cycle to a concrete `commission_runs` row per period, idempotent per `(restaurantId, period, currency)` via `ON CONFLICT DO NOTHING ... RETURNING` (P3-42 later made this bulk across every currency in a period in one statement). The nightly scheduler is a plain `setTimeout` self-scheduling loop (chosen explicitly over a cron library via `AskUserQuestion` — no new dependency for a single nightly tick) that calls `processPeriod` for every restaurant whose cycle has elapsed.
+
+### P3-38
+
+`SettlementStatementsService` — one statement row per commission run, `createManyForRunsInTx` (P3-42) bulk-inserting across every run a period produced. Payment recording is a thin, append-only write against the statement, mirroring the same "a payment is its own row, never an update to the thing it's paying off" shape every other ledger in this codebase already uses (credit customers, supplier ledger, invoices/payments).
+
+### P3-39
+
+Found and fixed a real RLS-bypass bug class while building the Super Admin restaurant list/detail/status/revenue surface (`RestaurantsAdminService`/`PlatformRevenueService`, wired into `apps/api-admin`): any `*AsSuperAdmin` service method that calls `withTenant(db, { restaurantId, isSuperAdmin: true })` *must* still carry an explicit `WHERE restaurantId = X` filter in its own query — `isSuperAdmin: true` makes every RLS `tenantMatch` policy permit *all* rows regardless of the session's `restaurantId`, so omitting the filter silently returns cross-tenant data. Closed in `BillingPlanService.readPlan`, `DeviceService.listAsSuperAdmin`, and `SettlementStatementsService.listForRestaurantAsSuperAdmin`/`listPayments` — plus a pre-existing instance of the exact same bug in `FeatureFlagsService.listForRestaurantAsSuperAdmin`, dating back to P1-23 and unrelated to this task, found only because this task's own audit pattern happened to cover it too.
+
+### P3-40
+
+Full audit logging for Super Admin actions: `audit_logs.actingAsSuperAdmin` (stamped automatically by `AuditLogService.record` from the ambient tenant context — no caller passes it) plus a new `SuperAdminNoticeInterceptor` that sets an `X-Acting-As-Super-Admin` response header whenever the session is a super-admin one. Had to switch the interceptor from rxjs `tap()` to `finalize()`: `tap()`'s callback only fires on a *successful* completion, so a route that throws (400/403/404) skipped the header entirely — invisible until a dedicated error-path smoke check caught it. New `GET /restaurants/:restaurantId/audit-logs` (cursor-paginated, P2-46's convention) for a restaurant to see exactly what a super-admin session did to its own data.
+
+### P3-41
+
+Added `index(...)` to 9 previously-unindexed schema files touched throughout Phase 3's purchasing/inventory chain (`stock_ledger`, `purchase_order_items`, `goods_received_notes`/`goods_received_note_items`, `supplier_invoices`/`supplier_invoice_items`, `supplier_ledger_entries`, `purchase_returns`/`purchase_return_items`, `wastage_entries`, `order_item_food_costs`). The real finding: `stock_ledger` — the single most heavily-read inventory table by this point — had *zero* indexes beyond its primary key. Verified with `EXPLAIN` under real RLS tenant context (the project's own established `query-plan.test.ts` pattern), seeded with deliberately skewed data — an even, fully-matching seed makes a seq scan the *correct* planner choice and would have hidden a real missing-index bug as a false pass.
+
+### P3-42
+
+Set-based batch processing for the two hot paths the task names: `expandInvoiceIngredientsBatch`/`computeInvoiceLineCostsBatch` (new `stock-deduction-shared.ts` helpers) turn `SalesStockDeductionService.deductForInvoice` into a handful of queries total regardless of how many items or distinct ingredients an invoice carries, and `StockLedgerService.recordSaleDeductionsInTx` does the actual stock_levels write as one bulk `INSERT ... ON CONFLICT DO UPDATE SET quantity = quantity + excluded.quantity` — safe to batch with no ordering dependency between rows specifically *because* a decrease never touches the weighted-average cost (P3-11's own rule). `CommissionRunService.processPeriod` got the same treatment: one bulk insert across every currency in a period instead of one per currency.
+
+### P3-43
+
+BullMQ-backed report queues (`ReportsQueueService`, first use of BullMQ anywhere in this codebase) so a heavy sales/inventory/kitchen report runs on its own queue with its own concurrency limit (rule: a report must never slow down a sale) rather than inline on the request. Every report controller now calls `reportsQueueService.run(jobName, params)` instead of its service directly; `apps/api-reports`'s new `ReportJobHandlersProvider` registers the real computation per job name, replicating the exact response-shape mapping (bigint→string, etc.) the controller used to do itself. `HttpException` doesn't survive a BullMQ job boundary as its own class — added `serializeReportJobError`/`deserializeReportJobError` to round-trip `{status, message}` through the job's own error message string, so an existing 400/404 contract survives unchanged on the other side.
+
+Found a real NestJS DI bug while wiring this up: `ReportJobHandlersProvider`'s plain constructor-parameter injection (no explicit `@Inject()`) silently resolved every dependency to `undefined` at runtime, despite being structurally identical to a working precedent (`CommissionHandlerProvider` in `apps/worker`) — confirmed via a temporary constructor `console.log`. Fixed with explicit `@Inject(ServiceClass)` on every parameter; root cause not fully pinned down (suspected decorator-metadata emission quirk specific to this package's build/test transform), but the explicit-token fix is strictly more robust regardless and was kept permanently.
+
+### Phase 3 exit gate review (2026-11-26)
+
+- *Stock movements reconcile with real sales* — a throwaway smoke test (local Postgres, deleted after use, same "ad-hoc verification, not a permanent suite" shape as every other exit-gate check) ran a real order through to a closed invoice, deducted stock via `SalesStockDeductionService.deductForInvoice` (matched the recipe exactly: 3 sold × 1 patty/unit = a single `-3` ledger row), confirmed the idempotency guard (a second call deducts nothing), and ran `ReconciliationService.reconcileInvoice` against it — zero flags. Then deliberately created a real mismatch (an order item linked to the invoice after the fact, the same technique `reconciliation.service.test.ts` already uses, since `invoices` has UPDATE revoked at the DB level and can't just be edited directly) and confirmed reconciliation actually caught it. Pass.
+- *A ledger rebuild matches stored stock levels* — same smoke test: `StockLevelsService.rebuild` reported zero discrepancies right after a real deduction, then correctly caught a deliberately corrupted `stock_levels` row (set to 999 against a real ledger-replayed value of -5), and `apply: true` round-tripped it back to zero discrepancies. Pass.
+- *Commission matches invoices and refunds* — same smoke test: a real payment produced a commission charge at the restaurant's locked rate (5% of 10,000 → 500), the idempotency guard held (processing the same payment twice never double-charges), and a full refund produced the exact reversal, netting the invoice's total commission to zero. Separately confirmed `restaurants.commissionRateBasisPoints` genuinely rejects an UPDATE at the DB level (rule 7), not just "the app code doesn't do it." Pass.
+- *The kitchen works through an internet outage* — no server-side DB surface exists to smoke-test this one; verified by reading `apps/desktop/src/kitchen/App.tsx` and `offline-kitchen-ticket.ts` directly instead. The hub-relay path (P3-05) is real: an offline-fired ticket displays and can be bumped/recalled purely over the P2-38 hub relay, with no server round-trip. Still only provable for real with live hardware and a genuine outage — the same conclusion the P2-45 exit-gate hardening already reached for sync generally. Pass, with that caveat carried forward rather than claimed as fully closed.
+- **A real process gap found during this review, unrelated to the 4 criteria above**: P3-01 through P3-12 and P3-29 through P3-43 (27 tasks) were all genuinely complete in the codebase — verified by reading the actual schema/service/controller/frontend code for every one of them — but their CLAUDE.md checkboxes had never been ticked, and none of them had a `task-log.md` entry at all (only P3-13 through P3-28 did). A violation of rule 5/6 that had already happened, not a new decision — surfaced to the user rather than silently fixed or silently left; the user asked for it fixed. Checkboxes ticked and the above entries backfilled in this same pass, describing what the code actually does (confirmed by reading it), not a reconstruction from memory of what was *supposed* to happen.
+- Not re-run this session: the full repo-wide lint/typecheck/test suite (no code changed by this review itself — the smoke test file was deleted, not committed). The local dev Postgres needed a `migrate:run` against the correct container (port 5433 — a separate, unrelated native Postgres install on this machine was squatting on the default port 5432 migrate.ts's own default admin URL points at, so the first migration attempt silently updated the wrong database) before the smoke test could run at all.

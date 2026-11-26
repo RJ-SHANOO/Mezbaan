@@ -320,20 +320,20 @@ that file only when you need that detail (e.g. picking up related work).
 **Goal:** kitchen flow, accurate stock and food cost, and platform revenue.
 
 **Kitchen**
-- [ ] **P3-01** Build kitchen stations and routing rules by product and category.
-- [ ] **P3-02** Build kitchen tickets with no money fields, including add-ons, voids and rush flags.
-- [ ] **P3-03** Build the kitchen display: queue, timers, bump, recall and order-ready status.
-- [ ] **P3-04** Add kitchen printer support, with fallback from display to printer and back.
-- [ ] **P3-05** Make the kitchen flow work offline through the hub.
-- [ ] **P3-06** Add preparation time reports by station and product.
+- [x] **P3-01** Build kitchen stations and routing rules by product and category. `kitchen_stations` (name, sort order, own printer host/port) + `kitchen_routing_rules` (exactly one of category/product per rule). `resolveStation` prefers a product-specific rule over a category one, falling back to unrouted. [task-log.md#p3-01](docs/task-log.md#p3-01)
+- [x] **P3-02** Build kitchen tickets with no money fields, including add-ons, voids and rush flags. `KitchenTicketsService` builds a ticket purely from fired order items/modifiers — no price field anywhere in the shape (rule 18). `rush` is a per-ticket cashier flag. [task-log.md#p3-02](docs/task-log.md#p3-02)
+- [x] **P3-03** Build the kitchen display: queue, timers, bump, recall and order-ready status. Real Tauri window (`apps/desktop/src/kitchen/App.tsx`) polling a device-token-authed terminal API every 5s — station-grouped queue, color-coded elapsed timer, bump/recall, an "order ready" banner once every ticket for an order is bumped. `kitchen_ticket_states` is the exclusion-list convention again (a bump is a row, a recall is a DELETE). [task-log.md#p3-03](docs/task-log.md#p3-03)
+- [x] **P3-04** Add kitchen printer support, with fallback from display to printer and back. User's explicit choice: print *always* alongside the display rather than a detected fallback, since "is the display up" can't be reliably checked from here. `kitchen_ticket_template.rs` renders real ESC/POS bytes; dedup tracked in localStorage over the same 3-hour window the display polls. [task-log.md#p3-04](docs/task-log.md#p3-04)
+- [x] **P3-05** Make the kitchen flow work offline through the hub. An offline-fired ticket relays over P2-38's hub (its first real caller) instead of the server; the display merges hub entries with its normal poll, and bump/recall republishes to the hub for a hub-sourced ticket. Documented gap: an offline ticket's station is always null (routing rules aren't synced to the terminal), so it always lands in "Unrouted." [task-log.md#p3-05](docs/task-log.md#p3-05)
+- [x] **P3-06** Add preparation time reports by station and product. `KitchenPrepTimeReportsService.getReport` — avg/min/max fired-to-bumped seconds, grouped by station and product/variant, scoped to one branch's business day. [task-log.md#p3-06](docs/task-log.md#p3-06)
 
 **Inventory items and ledger**
-- [ ] **P3-07** Build inventory items, categories, SKU, barcode and storage locations (such as store and kitchen).
-- [ ] **P3-08** Build units and conversions, such as purchase in cartons, store in kg and use in grams.
-- [ ] **P3-09** Build the append-only stock ledger with movement types: purchase, sale, return, wastage, adjustment, count, production and transfer.
-- [ ] **P3-10** Build branch and location stock levels derived from the ledger, with a rebuild tool to verify them.
-- [ ] **P3-11** Add weighted average costing, with the unit cost snapshotted on each movement.
-- [ ] **P3-12** Add negative stock flags and a review screen for offline sales.
+- [x] **P3-07** Build inventory items, categories, SKU, barcode and storage locations (such as store and kitchen). `inventory_categories`/`inventory_items` (SKU/barcode partial-unique-per-restaurant, same convention as products.ts) + branch-scoped `storage_locations`. [task-log.md#p3-07](docs/task-log.md#p3-07)
+- [x] **P3-08** Build units and conversions, such as purchase in cartons, store in kg and use in grams. `units` (restaurant-defined) + `inventory_item_unit_conversions`, a star shape centered on each item's own base unit — no full pairwise conversion table. [task-log.md#p3-08](docs/task-log.md#p3-08)
+- [x] **P3-09** Build the append-only stock ledger with movement types: purchase, sale, return, wastage, adjustment, count, production and transfer. `stock_ledger` with all 8 types, UPDATE/DELETE revoked (rule 4). Direction is a signed `quantityDelta`, never implied by the type — this task defines the shape only, every type got a real caller from whichever later task needed it. [task-log.md#p3-09](docs/task-log.md#p3-09)
+- [x] **P3-10** Build branch and location stock levels derived from the ledger, with a rebuild tool to verify them. `stock_levels` is a materialized cache of the ledger, updated in the same transaction as every ledger write. `StockLevelsService.rebuild` replays the whole ledger and diffs against what's stored, with `apply: true` to actually correct drift. [task-log.md#p3-10](docs/task-log.md#p3-10)
+- [x] **P3-11** Add weighted average costing, with the unit cost snapshotted on each movement. `blendWeightedAverageCost` (`packages/domain`) folds a costed increase into the running average; a decrease is always valued at the current average and never moves it — the rule every later batching/costing task leans on. [task-log.md#p3-11](docs/task-log.md#p3-11)
+- [x] **P3-12** Add negative stock flags and a review screen for offline sales. `negative_stock_flags`, written in the same transaction as the movement that caused it (rule 12), generic across every movement type. `review` marks a flag reviewed — never deleted, never reviewed twice. [task-log.md#p3-12](docs/task-log.md#p3-12)
 
 **Recipes and production**
 - [x] **P3-13** Build recipes per product and variant, with quantities, units and yield percentage. Backend only. `recipes`/`recipe_items`, exactly-one-owner CHECK constraint (same convention as order_items.ts/price_list_items.ts). Deliberately not versioned yet — P3-19 is what adds that. [task-log.md#p3-13](docs/task-log.md#p3-13)
@@ -356,29 +356,31 @@ that file only when you need that detail (e.g. picking up related work).
 - [x] **P3-26** Build full and cycle stock counts, with blind count entry and offline support. `stock_counts`/`stock_count_items` — `expectedQuantity` snapshotted at count-start but withheld from every response while a count is in_progress, only visible once submitted. Doesn't touch stock_ledger at all — that's deliberately P3-27's job. "Offline support" is the blind per-line submit already being a flat, idempotent-by-construction write, not a separate mechanism. [task-log.md#p3-26](docs/task-log.md#p3-26)
 - [x] **P3-27** Add variance review and approval before stock is adjusted. New `approved` status, ManagerPinService-gated (no own-authority tier, same as a refund). One "count" stock_ledger movement per line that actually differs. Found and fixed two real gaps first: both `submitLineCount` and `finalize` only checked for status `"submitted"`, not also blocking an already-`"approved"` count from being edited/resubmitted. [task-log.md#p3-27](docs/task-log.md#p3-27)
 - [x] **P3-28** Add wastage entry with reason codes and approval limits. `WastageService` — a standalone stock loss with no sale/void/purchase behind it (distinct from P3-18's void-triggered wastage). `wastage_limit_settings` mirrors discount_limit_settings' own-authority-limit shape, checked against the entry's *cost* (quantity × current average cost via the shared `computeLineCost` from P3-19), not raw quantity. [task-log.md#p3-28](docs/task-log.md#p3-28)
-- [ ] **P3-29** Add minimum and par levels with low-stock alerts on the dashboard.
-- [ ] **P3-30** Add an inventory audit trail showing the full history behind any stock number.
+- [x] **P3-29** Add minimum and par levels with low-stock alerts on the dashboard. `ParLevelsService` (`item_par_levels`, min/par per location+item) + `getLowStock`, joining against `stock_levels` for every item at or below its own minimum — a dashboard read, not a push notification. [task-log.md#p3-29](docs/task-log.md#p3-29)
+- [x] **P3-30** Add an inventory audit trail showing the full history behind any stock number. `GET /stock-ledger/audit-trail` — every ledger row for one item+location, oldest first, with a running balance computed in memory as it walks the rows. [task-log.md#p3-30](docs/task-log.md#p3-30)
 
 **Inventory reports**
-- [ ] **P3-31** Add stock on hand, stock valuation and stock movement reports.
-- [ ] **P3-32** Add theoretical versus actual food cost and variance reports.
-- [ ] **P3-33** Add wastage, purchase and supplier reports.
+- [x] **P3-31** Add stock on hand, stock valuation and stock movement reports. `InventoryReportsService.getStockOnHand`/`getStockValuation`/`getStockMovementReport`, read-only off `stock_levels`/`stock_ledger`. An uncosted item contributes nothing to a value total rather than guessing. [task-log.md#p3-31](docs/task-log.md#p3-31)
+- [x] **P3-32** Add theoretical versus actual food cost and variance reports. `getFoodCostVarianceReport` — theoretical cost from P3-19's per-sale recipe-cost snapshots, actual cost from real stock_ledger sale+wastage movements over the same window; a restaurant with no extra wastage nets to zero variance by construction. [task-log.md#p3-32](docs/task-log.md#p3-32)
+- [x] **P3-33** Add wastage, purchase and supplier reports. `getWastageReport`/`getPurchaseReport`/`getSupplierActivityReport` — the last one has no table of its own, it's purchased value and returned quantity joined by supplier. [task-log.md#p3-33](docs/task-log.md#p3-33)
 
 **Platform billing and admin**
-- [ ] **P3-34** Build commission entries from paid invoices, with the rate snapshotted and idempotent processing.
-- [ ] **P3-35** Add commission reversals when a refund occurs.
-- [ ] **P3-36** Add the hybrid fixed + commission plan and configurable billing cycles.
-- [ ] **P3-37** Build `CommissionRun` with idempotent runs and a nightly settlement job.
-- [ ] **P3-38** Build settlement statements and payment recording.
-- [ ] **P3-39** Build Super Admin: restaurant list, status, plans, devices, platform revenue and support tools.
-- [ ] **P3-40** Add full audit logging and a clear visible notice whenever Super Admin acts on a restaurant's data.
+- [x] **P3-34** Build commission entries from paid invoices, with the rate snapshotted and idempotent processing. `CommissionService.processPayment` — one row per payment actually collected, idempotent via a unique-indexed existence check, rate read fresh and frozen onto the row forever (rule 7). [task-log.md#p3-34](docs/task-log.md#p3-34)
+- [x] **P3-35** Add commission reversals when a refund occurs. `CommissionService.processRefund` — a signed-negative "reversal" row in the same table; a fully refunded sale's charge+reversal nets to exactly zero. [task-log.md#p3-35](docs/task-log.md#p3-35)
+- [x] **P3-36** Add the hybrid fixed + commission plan and configurable billing cycles. `BillingPlanService`/`billing_plans` — flat fee + commission rate + cycle length per restaurant, read fresh by each commission run. [task-log.md#p3-36](docs/task-log.md#p3-36)
+- [x] **P3-37** Build `CommissionRun` with idempotent runs and a nightly settlement job. `CommissionRunService.processPeriod`, idempotent per (restaurant, period, currency); `CommissionRunScheduler` is a plain self-scheduling `setTimeout` loop, chosen over a cron library via `AskUserQuestion`. [task-log.md#p3-37](docs/task-log.md#p3-37)
+- [x] **P3-38** Build settlement statements and payment recording. `SettlementStatementsService` — one statement per commission run; payment recording is its own append-only row, same shape as every other ledger in this codebase. [task-log.md#p3-38](docs/task-log.md#p3-38)
+- [x] **P3-39** Build Super Admin: restaurant list, status, plans, devices, platform revenue and support tools. `RestaurantsAdminService`/`PlatformRevenueService` in `apps/api-admin`. Found and fixed a real RLS-bypass bug class along the way: an `*AsSuperAdmin` method without an explicit `restaurantId` filter silently returns cross-tenant data, since `isSuperAdmin: true` makes RLS permit every row — closed in 3 services plus a pre-existing P1-23 instance of the same bug. [task-log.md#p3-39](docs/task-log.md#p3-39)
+- [x] **P3-40** Add full audit logging and a clear visible notice whenever Super Admin acts on a restaurant's data. `audit_logs.actingAsSuperAdmin` stamped automatically; `SuperAdminNoticeInterceptor` sets an `X-Acting-As-Super-Admin` response header — had to use rxjs `finalize()` not `tap()` so the header survives an error response too. [task-log.md#p3-40](docs/task-log.md#p3-40)
 
 **Performance**
-- [ ] **P3-41** Add database indexes based on real inventory and report queries, and remove unused ones.
-- [ ] **P3-42** Use set-based batch processing for stock deductions and commission runs, while keeping them idempotent.
-- [ ] **P3-43** Run heavy reports and exports through background jobs with separate BullMQ queues and concurrency limits, so they cannot slow down sales.
+- [x] **P3-41** Add database indexes based on real inventory and report queries, and remove unused ones. Added indexes to 9 previously-unindexed schema files — `stock_ledger`, the busiest inventory table, had zero beyond its primary key. Verified with `EXPLAIN` under real RLS context against deliberately skewed seed data (an even seed would hide a missing index as a false pass). [task-log.md#p3-41](docs/task-log.md#p3-41)
+- [x] **P3-42** Use set-based batch processing for stock deductions and commission runs, while keeping them idempotent. `expandInvoiceIngredientsBatch`/`computeInvoiceLineCostsBatch`/`recordSaleDeductionsInTx` turn a sale's stock deduction into a handful of queries regardless of item count — safe to batch because a decrease never touches the weighted-average cost (P3-11). `CommissionRunService` batched the same way across currencies. [task-log.md#p3-42](docs/task-log.md#p3-42)
+- [x] **P3-43** Run heavy reports and exports through background jobs with separate BullMQ queues and concurrency limits, so they cannot slow down sales. `ReportsQueueService` (first BullMQ use in this codebase); every report controller now runs its job through the queue, response-shape mapping moved into `apps/api-reports`'s new handler provider. Found a real NestJS DI bug along the way — plain constructor injection silently resolved every dependency to `undefined`; fixed with explicit `@Inject()`. [task-log.md#p3-43](docs/task-log.md#p3-43)
 
 **Exit gate:** stock movements reconcile with real sales in the pilot; a ledger rebuild matches stored stock levels; commission matches invoices and refunds; the kitchen works through an internet outage.
+
+**Exit gate review (2026-11-26):** Three criteria verified by a real smoke test (deleted after use): a sale's stock deduction matches its recipe and reconciliation both passes a correct invoice and catches a deliberately broken one; a ledger rebuild reports zero drift after a real sale and correctly catches (and `apply: true` fixes) a deliberately corrupted stock_levels row; a payment's commission charge and a refund's exact reversal net to zero, with the locked rate column confirmed genuinely unwritable at the DB level. The 4th (kitchen offline) is design-verified only (hub relay in `App.tsx`/`offline-kitchen-ticket.ts` is real) — still provable for real only with live hardware, same as the P2-45 hardening's own conclusion. Also found and fixed in this pass: P3-01–12 and P3-29–43 were genuinely complete in code but their checkboxes and task-log entries had never been written — backfilled both. [task-log.md#phase-3-exit-gate-review-2026-11-26](docs/task-log.md#phase-3-exit-gate-review-2026-11-26)
 
 ---
 
