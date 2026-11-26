@@ -32,4 +32,3 @@ export {
 export { convertQuantity, requiredRawQuantity } from "./quantity.js";
 export { scaleMoneyByQuantity, blendWeightedAverageCost } from "./costing.js";
 export { type BillingCycle, type BillingPeriod, billingPeriodContaining } from "./billing-period.js";
-export { type BillingCycle, type BillingPeriod, billingPeriodContaining } from "./billing-period.js";
